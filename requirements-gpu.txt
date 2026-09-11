@@ -1,0 +1,10 @@
+-r requirements.txt
+
+# Install CUDA torch first, then LTX-Video from GitHub:
+#   py -3.11 -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+#   py -3.11 -m pip install -e "git+https://github.com/Lightricks/LTX-Video.git#egg=ltx-video[inference]"
+#
+# Or clone beside this repo and:
+#   py -3.11 -m pip install -e "..\LTX-Video[inference]"
+
+ltx-video[inference] @ git+https://github.com/Lightricks/LTX-Video.git
