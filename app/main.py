@@ -1,3 +1,8 @@
+import os
+
+# Must be set before CUDA initializes to reduce allocator fragmentation on 12GB cards.
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI

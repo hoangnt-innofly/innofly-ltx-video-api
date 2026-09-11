@@ -4,16 +4,16 @@ FastAPI demo backend for local **Image-to-Video** with [Lightricks/LTX-Video](ht
 
 Upload an image + text prompt. Submit returns a `video_url`.
 
-## Defaults (3060-friendly)
+## Defaults (3060 12GB)
 
 | Setting | Value |
 | --- | --- |
-| Model | `ltxv-2b-0.9.8-distilled` |
-| Resolution | `704×480` (divisible by 32) |
+| Model | `ltxv-2b-0.9.8-distilled` (single-scale low-VRAM config) |
+| Resolution | `512×320` (divisible by 32) |
 | Frames | `49` (`8n + 1`) |
 | Prompt enhancer | off (saves VRAM) |
 
-Start even smaller (`512×320`, 49 frames) if VRAM is tight. Raise resolution/frames only after a first run succeeds.
+`704×480` multi-scale OOMs on 12GB. After a first run succeeds, you can try `640×384` then `704×480`. On 16GB+ switch `LTX_PIPELINE_CONFIG` to `configs/ltxv-2b-0.9.8-distilled.yaml`.
 
 ## API
 
@@ -34,8 +34,8 @@ Example (sync demo — response includes `video_url`):
 curl.exe -X POST "http://127.0.0.1:8000/api/v1/generate" `
   -F "image=@input.jpg" `
   -F "prompt=A young anime boy slowly turns his head and smiles, cinematic animation" `
-  -F "width=704" `
-  -F "height=480" `
+  -F "width=512" `
+  -F "height=320" `
   -F "num_frames=49" `
   -F "seed=42"
 ```
@@ -45,8 +45,8 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/generate" `
   "job_id": "...",
   "status": "succeeded",
   "prompt": "...",
-  "width": 704,
-  "height": 480,
+  "width": 512,
+  "height": 320,
   "num_frames": 49,
   "seed": 42,
   "video_url": "http://127.0.0.1:8000/media/videos/<job_id>.mp4",
@@ -90,7 +90,7 @@ python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_
 python scripts/download_models.py
 ```
 
-Keep `LTX_MOCK=0` in `.env`. First request downloads remaining Hugging Face deps (T5 text encoder) if they are not cached, then loads the pipeline once and reuses it.
+Keep `LTX_MOCK=0` in `.env` and point `LTX_PIPELINE_CONFIG` at `configs/ltxv-2b-0.9.8-distilled-lowvram.yaml` on 12GB cards. `LTX_MAX_GPU_MEMORY_GB=11` caps the PyTorch allocator so the 12GB card keeps a little headroom (use `10` for a tighter cap, `0` for unlimited). First request downloads remaining Hugging Face deps (T5 text encoder) if they are not cached, then loads the pipeline once and reuses it.
 
 Weights used:
 

@@ -18,10 +18,10 @@ class Settings(BaseSettings):
     public_base_url: str = "http://127.0.0.1:8000"
 
     ltx_mock: bool = False
-    ltx_pipeline_config: str = "configs/ltxv-2b-0.9.8-distilled.yaml"
+    ltx_pipeline_config: str = "configs/ltxv-2b-0.9.8-distilled-lowvram.yaml"
 
-    ltx_default_width: int = 704
-    ltx_default_height: int = 480
+    ltx_default_width: int = 512
+    ltx_default_height: int = 320
     ltx_default_num_frames: int = 49
     ltx_default_frame_rate: int = 24
     ltx_default_seed: int = 42
@@ -31,6 +31,8 @@ class Settings(BaseSettings):
 
     max_upload_mb: int = 20
     job_ttl_seconds: int = 86400
+    # PyTorch allocator cap in GiB. 0 = unlimited. 11 leaves headroom on a 12GB card.
+    ltx_max_gpu_memory_gb: float = 11.0
 
     @property
     def pipeline_config_path(self) -> Path:

@@ -1,0 +1,19 @@
+# Single-scale distilled 2B — no spatial upscaler / second pass.
+# Use this on 12GB GPUs (RTX 3060). Keep generate size at 512x320 x 49 or smaller.
+pipeline_type: base
+checkpoint_path: "ltxv-2b-0.9.8-distilled.safetensors"
+stg_mode: "attention_values"
+decode_timestep: 0.05
+decode_noise_scale: 0.025
+text_encoder_model_name_or_path: "PixArt-alpha/PixArt-XL-2-1024-MS"
+precision: "bfloat16"
+sampler: "from_checkpoint"
+prompt_enhancement_words_threshold: 0
+prompt_enhancer_image_caption_model_name_or_path: "MiaoshouAI/Florence-2-large-PromptGen-v2.0"
+prompt_enhancer_llm_model_name_or_path: "unsloth/Llama-3.2-3B-Instruct"
+stochastic_sampling: false
+guidance_scale: 1
+stg_scale: 0
+rescaling_scale: 1
+skip_block_list: [42]
+timesteps: [1.0000, 0.9937, 0.9875, 0.9812, 0.9750, 0.9094, 0.7250]

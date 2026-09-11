@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import copy
+import gc
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
 import imageio
 import numpy as np
 import torch
+
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 from ltx_video.inference import (
     calculate_padding,
@@ -29,8 +33,13 @@ logger = logging.getLogger("ltx-api")
 class LTXEngine:
     """Loads LTX-Video 2B once and reuses it for Image-to-Video jobs."""
 
-    def __init__(self, pipeline_config_path: Path) -> None:
+    def __init__(
+        self,
+        pipeline_config_path: Path,
+        max_gpu_memory_gb: float = 11.0,
+    ) -> None:
         self.pipeline_config_path = Path(pipeline_config_path)
+        self.max_gpu_memory_gb = max_gpu_memory_gb
         self.raw_pipeline_config: dict[str, Any] = load_pipeline_config(
             str(self.pipeline_config_path)
         )
@@ -47,6 +56,7 @@ class LTXEngine:
         if self._ready:
             return
 
+        self._apply_memory_cap()
         pipeline_config = self.raw_pipeline_config
         ckpt_name = pipeline_config["checkpoint_path"]
         ckpt_path = self._resolve_weight(ckpt_name)
@@ -113,61 +123,65 @@ class LTXEngine:
         num_frames_padded = ((num_frames - 2) // 8 + 1) * 8 + 1
         padding = calculate_padding(height, width, height_padded, width_padded)
 
-        conditioning_items = prepare_conditioning(
-            conditioning_media_paths=[str(image_path)],
-            conditioning_strengths=[1.0],
-            conditioning_start_frames=[0],
-            height=height,
-            width=width,
-            num_frames=num_frames,
-            padding=padding,
-            pipeline=self.pipeline,
-        )
+        try:
+            conditioning_items = prepare_conditioning(
+                conditioning_media_paths=[str(image_path)],
+                conditioning_strengths=[1.0],
+                conditioning_start_frames=[0],
+                height=height,
+                width=width,
+                num_frames=num_frames,
+                padding=padding,
+                pipeline=self.pipeline,
+            )
 
-        generator = torch.Generator(device=self.device).manual_seed(seed)
-        images = self.pipeline(
-            **pipeline_config,
-            skip_layer_strategy=self._skip_layer_strategy,
-            generator=generator,
-            output_type="pt",
-            callback_on_step_end=None,
-            height=height_padded,
-            width=width_padded,
-            num_frames=num_frames_padded,
-            frame_rate=frame_rate,
-            prompt=prompt,
-            prompt_attention_mask=None,
-            negative_prompt=negative_prompt,
-            negative_prompt_attention_mask=None,
-            media_items=None,
-            conditioning_items=conditioning_items,
-            is_video=True,
-            vae_per_channel_normalize=True,
-            image_cond_noise_scale=image_cond_noise_scale,
-            mixed_precision=(pipeline_config.get("precision") == "mixed_precision"),
-            offload_to_cpu=offload_to_cpu,
-            device=self.device,
-            enhance_prompt=False,
-        ).images
+            generator = torch.Generator(device=self.device).manual_seed(seed)
+            images = self.pipeline(
+                **pipeline_config,
+                skip_layer_strategy=self._skip_layer_strategy,
+                generator=generator,
+                output_type="pt",
+                callback_on_step_end=None,
+                height=height_padded,
+                width=width_padded,
+                num_frames=num_frames_padded,
+                frame_rate=frame_rate,
+                prompt=prompt,
+                prompt_attention_mask=None,
+                negative_prompt=negative_prompt,
+                negative_prompt_attention_mask=None,
+                media_items=None,
+                conditioning_items=conditioning_items,
+                is_video=True,
+                vae_per_channel_normalize=True,
+                image_cond_noise_scale=image_cond_noise_scale,
+                mixed_precision=(pipeline_config.get("precision") == "mixed_precision"),
+                offload_to_cpu=offload_to_cpu,
+                device=self.device,
+                enhance_prompt=False,
+            ).images
 
-        pad_left, pad_right, pad_top, pad_bottom = padding
-        pad_bottom = -pad_bottom
-        pad_right = -pad_right
-        if pad_bottom == 0:
-            pad_bottom = images.shape[3]
-        if pad_right == 0:
-            pad_right = images.shape[4]
-        images = images[:, :, :num_frames, pad_top:pad_bottom, pad_left:pad_right]
+            pad_left, pad_right, pad_top, pad_bottom = padding
+            pad_bottom = -pad_bottom
+            pad_right = -pad_right
+            if pad_bottom == 0:
+                pad_bottom = images.shape[3]
+            if pad_right == 0:
+                pad_right = images.shape[4]
+            images = images[:, :, :num_frames, pad_top:pad_bottom, pad_left:pad_right]
 
-        video_np = images[0].permute(1, 2, 3, 0).cpu().float().numpy()
-        video_np = (video_np * 255).clip(0, 255).astype(np.uint8)
+            video_np = images[0].permute(1, 2, 3, 0).cpu().float().numpy()
+            del images
+            video_np = (video_np * 255).clip(0, 255).astype(np.uint8)
 
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with imageio.get_writer(output_path, fps=frame_rate) as writer:
-            for frame in video_np:
-                writer.append_data(frame)
-        return output_path
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with imageio.get_writer(output_path, fps=frame_rate) as writer:
+                for frame in video_np:
+                    writer.append_data(frame)
+            return output_path
+        finally:
+            self._free_cuda()
 
     @staticmethod
     def _resolve_weight(name_or_path: str) -> Path:
@@ -195,3 +209,23 @@ class LTXEngine:
         if mode in {"stg_t", "transformer_block"}:
             return SkipLayerStrategy.TransformerBlock
         raise ValueError(f"Invalid spatiotemporal guidance mode: {stg_mode}")
+
+    def _apply_memory_cap(self) -> None:
+        cap_gb = self.max_gpu_memory_gb
+        if cap_gb <= 0 or not torch.cuda.is_available():
+            return
+        total_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        fraction = min(1.0, cap_gb / total_gb)
+        torch.cuda.set_per_process_memory_fraction(fraction, device=0)
+        logger.info(
+            "CUDA memory cap: %.2f GiB of %.2f GiB (fraction=%.3f)",
+            cap_gb,
+            total_gb,
+            fraction,
+        )
+
+    @staticmethod
+    def _free_cuda() -> None:
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()

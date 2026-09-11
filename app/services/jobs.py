@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.core.config import Settings
-from app.core.dims import align_frames, align_resolution
+from app.core.dims import align_frames, align_resolution, clamp_for_low_vram
 from app.services.mock_engine import generate_placeholder_video
 
 logger = logging.getLogger("ltx-api")
@@ -90,6 +90,19 @@ class JobService:
         width = align_resolution(width or self.settings.ltx_default_width)
         height = align_resolution(height or self.settings.ltx_default_height)
         num_frames = align_frames(num_frames or self.settings.ltx_default_num_frames)
+        gpu_gb = self._gpu_memory_gb()
+        if gpu_gb is not None and gpu_gb < 13:
+            clamped = clamp_for_low_vram(width, height, num_frames)
+            if clamped != (width, height, num_frames):
+                logger.warning(
+                    "12GB GPU (%.1f GiB): clamping %sx%sx%s -> %sx%sx%s",
+                    gpu_gb,
+                    width,
+                    height,
+                    num_frames,
+                    *clamped,
+                )
+            width, height, num_frames = clamped
         job = Job(
             id=job_id,
             prompt=prompt.strip(),
@@ -119,6 +132,30 @@ class JobService:
             return True
         return bool(self._engine and getattr(self._engine, "ready", False))
 
+    @staticmethod
+    def _gpu_memory_gb() -> float | None:
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                return torch.cuda.get_device_properties(0).total_memory / (1024**3)
+        except Exception:
+            return None
+        return None
+
+    @staticmethod
+    def _free_cuda() -> None:
+        try:
+            import gc
+
+            import torch
+
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
     def cuda_info(self) -> tuple[bool, str | None]:
         try:
             import torch
@@ -141,6 +178,7 @@ class JobService:
                 logger.exception("Job %s failed", job_id)
                 job.status = "failed"
                 job.error = str(exc)
+                self._free_cuda()
             finally:
                 job.finished_at = datetime.now(timezone.utc)
                 job._done.set()
@@ -176,6 +214,9 @@ class JobService:
             if self._engine is None:
                 from app.services.ltx_engine import LTXEngine
 
-                self._engine = LTXEngine(self.settings.pipeline_config_path)
+                self._engine = LTXEngine(
+                    self.settings.pipeline_config_path,
+                    max_gpu_memory_gb=self.settings.ltx_max_gpu_memory_gb,
+                )
                 self._engine.load()
             return self._engine
