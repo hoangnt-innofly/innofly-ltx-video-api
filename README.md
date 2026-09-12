@@ -90,7 +90,7 @@ python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_
 python scripts/download_models.py
 ```
 
-Keep `LTX_MOCK=0` in `.env` and point `LTX_PIPELINE_CONFIG` at `configs/ltxv-2b-0.9.8-distilled-lowvram.yaml` on 12GB cards. `LTX_MAX_GPU_MEMORY_GB=11` caps the PyTorch allocator so the 12GB card keeps a little headroom (use `10` for a tighter cap, `0` for unlimited). First request downloads remaining Hugging Face deps (T5 text encoder) if they are not cached, then loads the pipeline once and reuses it.
+Copy `.env.example` to `.env` on the GPU server. On 12GB cards keep `LTX_PIPELINE_CONFIG=configs/ltxv-2b-0.9.8-distilled-lowvram.yaml`, `LTX_MAX_GPU_MEMORY_GB=0`, and `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. Generate at 512×320 × 49 — do not use 704×480 or the multi-scale yaml. First request downloads remaining Hugging Face deps (T5 text encoder) if they are not cached, then loads the pipeline once and reuses it.
 
 Weights used:
 

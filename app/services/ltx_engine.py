@@ -36,7 +36,7 @@ class LTXEngine:
     def __init__(
         self,
         pipeline_config_path: Path,
-        max_gpu_memory_gb: float = 11.0,
+        max_gpu_memory_gb: float = 0.0,
     ) -> None:
         self.pipeline_config_path = Path(pipeline_config_path)
         self.max_gpu_memory_gb = max_gpu_memory_gb

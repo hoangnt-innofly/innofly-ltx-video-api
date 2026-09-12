@@ -31,8 +31,8 @@ class Settings(BaseSettings):
 
     max_upload_mb: int = 20
     job_ttl_seconds: int = 86400
-    # PyTorch allocator cap in GiB. 0 = unlimited. 11 leaves headroom on a 12GB card.
-    ltx_max_gpu_memory_gb: float = 11.0
+    # 0 = no artificial cap. Do not set 10/11 on an 11.6GiB card.
+    ltx_max_gpu_memory_gb: float = 0.0
 
     @property
     def pipeline_config_path(self) -> Path:
