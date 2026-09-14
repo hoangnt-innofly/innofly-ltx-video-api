@@ -16,6 +16,8 @@
     input, textarea { width: 100%; background: #101318; color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
     textarea { min-height: 90px; resize: vertical; }
     .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .row-2 { grid-template-columns: 1fr 1fr; }
+    .hint { font-size: 0.75rem; color: var(--muted); margin: 4px 0 0; }
     button { margin-top: 18px; width: 100%; border: 0; border-radius: 10px; padding: 12px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
     #status { margin-top: 16px; color: var(--muted); white-space: pre-wrap; }
@@ -43,7 +45,19 @@
         </div>
         <div>
           <label>Frames (8n+1)</label>
-          <input type="number" name="num_frames" value="33" />
+          <input type="number" name="num_frames" value="33" min="9" step="8" />
+        </div>
+      </div>
+      <div class="row row-2">
+        <div>
+          <label>Frame rate</label>
+          <input type="number" name="frame_rate" value="24" min="8" max="30" />
+          <p class="hint">Duration ≈ frames / fps (33/24 ≈ 1.4s, 33/12 ≈ 2.8s)</p>
+        </div>
+        <div>
+          <label>Seed</label>
+          <input type="number" name="seed" value="42" />
+          <p class="hint">Same seed + same settings ≈ same motion</p>
         </div>
       </div>
       <button type="submit" id="btn">Generate video</button>
@@ -56,6 +70,35 @@
     const statusEl = document.getElementById("status");
     const btn = document.getElementById("btn");
     const player = document.getElementById("player");
+
+    function playableUrl(url) {
+      try {
+        const parsed = new URL(url, window.location.origin);
+        if (parsed.hostname === "127.0.0.1" || parsed.hostname === "localhost") {
+          return parsed.pathname + parsed.search;
+        }
+        return url;
+      } catch {
+        return url;
+      }
+    }
+
+    fetch("/health")
+      .then((r) => r.json())
+      .then((h) => {
+        const d = h.defaults || {};
+        const set = (name, value) => {
+          if (value === undefined || value === null) return;
+          const el = form.elements.namedItem(name);
+          if (el) el.value = value;
+        };
+        set("width", d.width);
+        set("height", d.height);
+        set("num_frames", d.num_frames);
+        set("frame_rate", d.frame_rate);
+        set("seed", d.seed);
+      })
+      .catch(() => {});
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
@@ -70,8 +113,8 @@
         statusEl.textContent = `Queued ${job.job_id}\nPolling for video_url…`;
         const done = await poll(job.job_id);
         if (done.status !== "succeeded") throw new Error(done.error || done.status);
-        statusEl.textContent = `Done.\nvideo_url: ${done.video_url}`;
-        player.src = done.video_url;
+        statusEl.textContent = `Done.\nvideo_url: ${playableUrl(done.video_url)}`;
+        player.src = playableUrl(done.video_url);
         player.style.display = "block";
       } catch (err) {
         statusEl.textContent = "Error: " + err.message;
@@ -84,7 +127,7 @@
       while (true) {
         const res = await fetch(`/api/v1/jobs/${id}`);
         const job = await res.json();
-        statusEl.textContent = `Job ${id}\nstatus: ${job.status}` + (job.video_url ? `\nvideo_url: ${job.video_url}` : "");
+        statusEl.textContent = `Job ${id}\nstatus: ${job.status}` + (job.video_url ? `\nvideo_url: ${playableUrl(job.video_url)}` : "");
         if (job.status === "succeeded" || job.status === "failed") return job;
         await new Promise((r) => setTimeout(r, 2000));
       }

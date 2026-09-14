@@ -50,6 +50,7 @@ def health() -> HealthResponse:
             "height": settings.ltx_default_height,
             "num_frames": settings.ltx_default_num_frames,
             "frame_rate": settings.ltx_default_frame_rate,
+            "seed": settings.ltx_default_seed,
             "model": "ltxv-2b-0.9.8-distilled",
             "pipeline_config": settings.ltx_pipeline_config,
             "max_gpu_memory_gb": settings.ltx_max_gpu_memory_gb,
