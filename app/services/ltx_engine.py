@@ -65,30 +65,49 @@ class LTXEngine:
         spatial_path = self._resolve_weight(spatial_name) if spatial_name else None
 
         precision = pipeline_config["precision"]
-        self.pipeline = create_ltx_video_pipeline(
-            ckpt_path=str(ckpt_path),
-            precision=precision,
-            text_encoder_model_name_or_path=pipeline_config[
-                "text_encoder_model_name_or_path"
-            ],
-            sampler=pipeline_config.get("sampler"),
-            device=self.device,
-            enhance_prompt=False,
-            prompt_enhancer_image_caption_model_name_or_path=pipeline_config.get(
-                "prompt_enhancer_image_caption_model_name_or_path"
-            ),
-            prompt_enhancer_llm_model_name_or_path=pipeline_config.get(
-                "prompt_enhancer_llm_model_name_or_path"
-            ),
-        )
-
-        if pipeline_config.get("pipeline_type") == "multi-scale":
-            if not spatial_path:
-                raise ValueError("spatial upscaler weights are required for multi-scale")
-            latent_upsampler = create_latent_upsampler(str(spatial_path), self.pipeline.device)
-            self.pipeline = LTXMultiScalePipeline(
-                self.pipeline, latent_upsampler=latent_upsampler
+        try:
+            self.pipeline = create_ltx_video_pipeline(
+                ckpt_path=str(ckpt_path),
+                precision=precision,
+                text_encoder_model_name_or_path=pipeline_config[
+                    "text_encoder_model_name_or_path"
+                ],
+                sampler=pipeline_config.get("sampler"),
+                device=self.device,
+                enhance_prompt=False,
+                prompt_enhancer_image_caption_model_name_or_path=pipeline_config.get(
+                    "prompt_enhancer_image_caption_model_name_or_path"
+                ),
+                prompt_enhancer_llm_model_name_or_path=pipeline_config.get(
+                    "prompt_enhancer_llm_model_name_or_path"
+                ),
             )
+
+            if pipeline_config.get("pipeline_type") == "multi-scale":
+                if not spatial_path:
+                    raise ValueError(
+                        "spatial upscaler weights are required for multi-scale"
+                    )
+                latent_upsampler = create_latent_upsampler(
+                    str(spatial_path), self.pipeline.device
+                )
+                self.pipeline = LTXMultiScalePipeline(
+                    self.pipeline, latent_upsampler=latent_upsampler
+                )
+        except Exception:
+            # Loading can die partway through (e.g. CUDA OOM while moving the
+            # transformer/VAE/text-encoder onto the GPU). If we leave the
+            # half-built pipeline sitting in self.pipeline, _ready stays
+            # False, and every subsequent request calls load() again on top
+            # of the still-allocated CUDA memory from this failed attempt —
+            # each retry leaks more VRAM until the process is restarted.
+            # Tear everything down here so the next attempt starts clean.
+            logger.exception("LTX-Video pipeline failed to load, freeing partial state")
+            self.pipeline = None
+            self._skip_layer_strategy = None
+            self._ready = False
+            self._free_cuda()
+            raise
 
         stg_mode = pipeline_config.get("stg_mode", "attention_values")
         self._skip_layer_strategy = self._stg_strategy(stg_mode)
