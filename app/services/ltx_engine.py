@@ -20,7 +20,6 @@ from ltx_video.inference import (
     create_ltx_video_pipeline,
     get_device,
     get_total_gpu_memory,
-    load_media_file,
     load_pipeline_config,
     prepare_conditioning,
     seed_everething,
@@ -50,6 +49,7 @@ class LTXEngine:
         self.pipeline = None
         self._skip_layer_strategy: SkipLayerStrategy | None = None
         self._ready = False
+        self._accelerate_offload = False
 
     @property
     def ready(self) -> bool:
@@ -113,6 +113,7 @@ class LTXEngine:
             self.pipeline = None
             self._skip_layer_strategy = None
             self._ready = False
+            self._accelerate_offload = False
             self._free_cuda()
             raise
 
@@ -147,6 +148,8 @@ class LTXEngine:
         pipeline_config.pop("stg_mode", None)
 
         seed_everething(seed)
+        # Keep the pipeline's T5→CPU→transformer hop even with accelerate, so
+        # both models are not resident on GPU at once. Hooks still manage idle.
         offload_to_cpu = self.cpu_offload or get_total_gpu_memory() < 30
 
         height_padded = ((height - 1) // 32 + 1) * 32
@@ -157,6 +160,7 @@ class LTXEngine:
         try:
             if self.cpu_offload:
                 self._free_cuda()
+                self._place_vae_on_gpu()
             conditioning_items = prepare_conditioning(
                 conditioning_media_paths=[str(image_path)],
                 conditioning_strengths=[1.0],
@@ -215,8 +219,7 @@ class LTXEngine:
             return output_path
         finally:
             if self.cpu_offload:
-                self._rest_on_cpu()
-                self._try_enable_diffusers_offload()
+                self._rest_after_job()
             self._free_cuda()
 
     @staticmethod
@@ -253,31 +256,47 @@ class LTXEngine:
     def _enable_cpu_offload(self) -> None:
         pipe = self._inner_pipeline()
         self._rest_on_cpu()
-        hooked = self._try_enable_diffusers_offload()
-        if not hooked:
-            self._force_cuda_execution_device(pipe)
+        self._wrap_vae_encode_on_gpu(getattr(pipe, "vae", None))
+        self._accelerate_offload = self._try_enable_diffusers_offload()
+        if self._accelerate_offload:
+            logger.info(
+                "CPU offload enabled (accelerate): T5/transformer hooked; "
+                "VAE excluded so image-to-video lerp stays on CUDA"
+            )
+            return
+        self._force_cuda_execution_device(pipe)
         self._patch_cpu_clears_cache(getattr(pipe, "text_encoder", None))
         self._patch_cpu_clears_cache(getattr(pipe, "transformer", None))
-        self._wrap_vae_decode_on_gpu(getattr(pipe, "vae", None))
         logger.info(
-            "CPU offload enabled (%s): T5/VAE stay in RAM; GPU runs one stage at a time",
-            "accelerate hooks" if hooked else "manual, no accelerate",
+            "CPU offload enabled (manual, accelerate unavailable): "
+            "T5 idles in RAM; VAE is moved to GPU for each job"
         )
 
     def _try_enable_diffusers_offload(self) -> bool:
         pipe = self._inner_pipeline()
         if pipe is None or not hasattr(pipe, "enable_model_cpu_offload"):
             return False
+        excluded = list(getattr(pipe, "_exclude_from_cpu_offload", None) or [])
+        if "vae" not in excluded:
+            excluded.append("vae")
+        pipe._exclude_from_cpu_offload = excluded
         try:
             pipe.enable_model_cpu_offload(device=self.device)
             return True
         except ImportError as exc:
-            logger.warning(
-                "%s — sequential offload will run without accelerate hooks. "
-                "Optional: pip install 'accelerate>=0.17.0'",
-                exc,
-            )
+            logger.warning("%s — falling back to manual CPU offload", exc)
             return False
+
+    def _rest_after_job(self) -> None:
+        """Free VAE VRAM. Re-apply accelerate hooks if __call__ stripped them."""
+        pipe = self._inner_pipeline()
+        if pipe is not None and getattr(pipe, "vae", None) is not None:
+            pipe.vae.to("cpu")
+        if self._accelerate_offload:
+            self._try_enable_diffusers_offload()
+            self._free_cuda()
+            return
+        self._rest_on_cpu()
 
     def _force_cuda_execution_device(self, pipe) -> None:
         """Make pipeline.__call__ move T5/transformer onto CUDA even when weights idle on CPU."""
@@ -301,6 +320,35 @@ class LTXEngine:
         cls._execution_device = property(_execution_device)
         cls._ltx_execution_patched = True
 
+    def _place_vae_on_gpu(self) -> None:
+        pipe = self._inner_pipeline()
+        if pipe is None:
+            return
+        vae = getattr(pipe, "vae", None)
+        if vae is not None:
+            vae.to(self.device)
+        scheduler = getattr(pipe, "scheduler", None)
+        if scheduler is not None and hasattr(scheduler, "to"):
+            try:
+                scheduler.to(self.device)
+            except Exception:
+                pass
+
+    def _wrap_vae_encode_on_gpu(self, vae) -> None:
+        if vae is None or getattr(vae, "_ltx_encode_on_gpu", False):
+            return
+        orig_encode = vae.encode
+        device = self.device
+
+        def encode(this, x, *args, **kwargs):
+            this.to(device)
+            if torch.is_tensor(x) and x.device.type != "cuda":
+                x = x.to(device)
+            return orig_encode(x, *args, **kwargs)
+
+        vae.encode = types.MethodType(encode, vae)
+        vae._ltx_encode_on_gpu = True
+
     def _rest_on_cpu(self) -> None:
         pipe = self._inner_pipeline()
         if pipe is None:
@@ -313,23 +361,6 @@ class LTXEngine:
         if upsampler is not None:
             upsampler.to("cpu")
         self._free_cuda()
-
-    def _wrap_vae_decode_on_gpu(self, vae) -> None:
-        if vae is None or getattr(vae, "_ltx_decode_offload", False):
-            return
-        orig_decode = vae.decode
-        device = self.device
-
-        def decode(this, *args, **kwargs):
-            this.to(device)
-            try:
-                return orig_decode(*args, **kwargs)
-            finally:
-                this.to("cpu")
-                LTXEngine._free_cuda()
-
-        vae.decode = types.MethodType(decode, vae)
-        vae._ltx_decode_offload = True
 
     @staticmethod
     def _patch_cpu_clears_cache(module) -> None:

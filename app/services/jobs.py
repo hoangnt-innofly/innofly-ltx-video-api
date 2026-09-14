@@ -219,5 +219,9 @@ class JobService:
                     max_gpu_memory_gb=self.settings.ltx_max_gpu_memory_gb,
                     cpu_offload=self.settings.ltx_cpu_offload,
                 )
-                self._engine.load()
+                try:
+                    self._engine.load()
+                except Exception:
+                    self._engine = None
+                    raise
             return self._engine

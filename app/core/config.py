@@ -22,7 +22,7 @@ class Settings(BaseSettings):
 
     ltx_default_width: int = 512
     ltx_default_height: int = 320
-    ltx_default_num_frames: int = 49
+    ltx_default_num_frames: int = 33
     ltx_default_frame_rate: int = 24
     ltx_default_seed: int = 42
     ltx_negative_prompt: str = (
@@ -33,7 +33,6 @@ class Settings(BaseSettings):
     job_ttl_seconds: int = 86400
     # 0 = no artificial cap. Do not set 10/11 on an 11.6GiB card.
     ltx_max_gpu_memory_gb: float = 0.0
-    # Keep T5/VAE in RAM; GPU holds only the active stage (target ~7-8GB VRAM).
     ltx_cpu_offload: bool = True
 
     @property
