@@ -22,3 +22,4 @@ outputs/
 
 .DS_Store
 Thumbs.db
+auto_publish.sh
