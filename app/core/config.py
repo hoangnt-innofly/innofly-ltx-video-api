@@ -33,6 +33,8 @@ class Settings(BaseSettings):
     job_ttl_seconds: int = 86400
     # 0 = no artificial cap. Do not set 10/11 on an 11.6GiB card.
     ltx_max_gpu_memory_gb: float = 0.0
+    # Keep T5/VAE in RAM; GPU holds only the active stage (target ~7-8GB VRAM).
+    ltx_cpu_offload: bool = True
 
     @property
     def pipeline_config_path(self) -> Path:

@@ -4,6 +4,7 @@ import copy
 import gc
 import logging
 import os
+import types
 from pathlib import Path
 from typing import Any
 
@@ -37,9 +38,11 @@ class LTXEngine:
         self,
         pipeline_config_path: Path,
         max_gpu_memory_gb: float = 0.0,
+        cpu_offload: bool = True,
     ) -> None:
         self.pipeline_config_path = Path(pipeline_config_path)
         self.max_gpu_memory_gb = max_gpu_memory_gb
+        self.cpu_offload = cpu_offload and torch.cuda.is_available()
         self.raw_pipeline_config: dict[str, Any] = load_pipeline_config(
             str(self.pipeline_config_path)
         )
@@ -65,6 +68,7 @@ class LTXEngine:
         spatial_path = self._resolve_weight(spatial_name) if spatial_name else None
 
         precision = pipeline_config["precision"]
+        load_device = "cpu" if self.cpu_offload else self.device
         try:
             self.pipeline = create_ltx_video_pipeline(
                 ckpt_path=str(ckpt_path),
@@ -73,7 +77,7 @@ class LTXEngine:
                     "text_encoder_model_name_or_path"
                 ],
                 sampler=pipeline_config.get("sampler"),
-                device=self.device,
+                device=load_device,
                 enhance_prompt=False,
                 prompt_enhancer_image_caption_model_name_or_path=pipeline_config.get(
                     "prompt_enhancer_image_caption_model_name_or_path"
@@ -88,12 +92,15 @@ class LTXEngine:
                     raise ValueError(
                         "spatial upscaler weights are required for multi-scale"
                     )
+                upsampler_device = load_device
                 latent_upsampler = create_latent_upsampler(
-                    str(spatial_path), self.pipeline.device
+                    str(spatial_path), upsampler_device
                 )
                 self.pipeline = LTXMultiScalePipeline(
                     self.pipeline, latent_upsampler=latent_upsampler
                 )
+            if self.cpu_offload:
+                self._enable_cpu_offload()
         except Exception:
             # Loading can die partway through (e.g. CUDA OOM while moving the
             # transformer/VAE/text-encoder onto the GPU). If we leave the
@@ -112,7 +119,12 @@ class LTXEngine:
         stg_mode = pipeline_config.get("stg_mode", "attention_values")
         self._skip_layer_strategy = self._stg_strategy(stg_mode)
         self._ready = True
-        logger.info("LTX-Video pipeline ready on %s", self.device)
+        logger.info(
+            "LTX-Video pipeline ready on %s (cpu_offload=%s)%s",
+            self.device,
+            self.cpu_offload,
+            f" {self._vram_log()}" if torch.cuda.is_available() else "",
+        )
 
     def generate_i2v(
         self,
@@ -135,7 +147,7 @@ class LTXEngine:
         pipeline_config.pop("stg_mode", None)
 
         seed_everething(seed)
-        offload_to_cpu = get_total_gpu_memory() < 30
+        offload_to_cpu = self.cpu_offload or get_total_gpu_memory() < 30
 
         height_padded = ((height - 1) // 32 + 1) * 32
         width_padded = ((width - 1) // 32 + 1) * 32
@@ -143,6 +155,8 @@ class LTXEngine:
         padding = calculate_padding(height, width, height_padded, width_padded)
 
         try:
+            if self.cpu_offload:
+                self._free_cuda()
             conditioning_items = prepare_conditioning(
                 conditioning_media_paths=[str(image_path)],
                 conditioning_strengths=[1.0],
@@ -200,6 +214,11 @@ class LTXEngine:
                     writer.append_data(frame)
             return output_path
         finally:
+            if self.cpu_offload:
+                self._rest_on_cpu()
+                pipe = self._inner_pipeline()
+                if pipe is not None and hasattr(pipe, "enable_model_cpu_offload"):
+                    pipe.enable_model_cpu_offload(device=self.device)
             self._free_cuda()
 
     @staticmethod
@@ -228,6 +247,73 @@ class LTXEngine:
         if mode in {"stg_t", "transformer_block"}:
             return SkipLayerStrategy.TransformerBlock
         raise ValueError(f"Invalid spatiotemporal guidance mode: {stg_mode}")
+
+    def _inner_pipeline(self):
+        pipe = self.pipeline
+        return getattr(pipe, "video_pipeline", pipe)
+
+    def _enable_cpu_offload(self) -> None:
+        pipe = self._inner_pipeline()
+        self._rest_on_cpu()
+        if hasattr(pipe, "enable_model_cpu_offload"):
+            pipe.enable_model_cpu_offload(device=self.device)
+        self._patch_cpu_clears_cache(getattr(pipe, "text_encoder", None))
+        self._patch_cpu_clears_cache(getattr(pipe, "transformer", None))
+        self._wrap_vae_decode_on_gpu(getattr(pipe, "vae", None))
+        logger.info(
+            "CPU offload enabled: T5/transformer/VAE stay in RAM; GPU runs one stage at a time"
+        )
+
+    def _rest_on_cpu(self) -> None:
+        pipe = self._inner_pipeline()
+        if pipe is None:
+            return
+        for name in ("text_encoder", "transformer", "vae"):
+            module = getattr(pipe, name, None)
+            if module is not None:
+                module.to("cpu")
+        upsampler = getattr(self.pipeline, "latent_upsampler", None)
+        if upsampler is not None:
+            upsampler.to("cpu")
+        self._free_cuda()
+
+    def _wrap_vae_decode_on_gpu(self, vae) -> None:
+        if vae is None or getattr(vae, "_ltx_decode_offload", False):
+            return
+        orig_decode = vae.decode
+        device = self.device
+
+        def decode(this, *args, **kwargs):
+            this.to(device)
+            try:
+                return orig_decode(*args, **kwargs)
+            finally:
+                this.to("cpu")
+                LTXEngine._free_cuda()
+
+        vae.decode = types.MethodType(decode, vae)
+        vae._ltx_decode_offload = True
+
+    @staticmethod
+    def _patch_cpu_clears_cache(module) -> None:
+        if module is None or getattr(module, "_ltx_cpu_clears_cache", False):
+            return
+
+        def cpu(this, *args, **kwargs):
+            result = torch.nn.Module.cpu(this, *args, **kwargs)
+            LTXEngine._free_cuda()
+            return result
+
+        module.cpu = types.MethodType(cpu, module)
+        module._ltx_cpu_clears_cache = True
+
+    @staticmethod
+    def _vram_log() -> str:
+        if not torch.cuda.is_available():
+            return ""
+        allocated = torch.cuda.memory_allocated() / (1024**3)
+        reserved = torch.cuda.memory_reserved() / (1024**3)
+        return f"cuda allocated={allocated:.2f}GiB reserved={reserved:.2f}GiB"
 
     def _apply_memory_cap(self) -> None:
         cap_gb = self.max_gpu_memory_gb

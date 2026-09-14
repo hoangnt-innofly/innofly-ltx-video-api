@@ -217,6 +217,7 @@ class JobService:
                 self._engine = LTXEngine(
                     self.settings.pipeline_config_path,
                     max_gpu_memory_gb=self.settings.ltx_max_gpu_memory_gb,
+                    cpu_offload=self.settings.ltx_cpu_offload,
                 )
                 self._engine.load()
             return self._engine

@@ -12,6 +12,7 @@ Upload an image + text prompt. Submit returns a `video_url`.
 | Resolution | `512×320` (divisible by 32) |
 | Frames | `49` (`8n + 1`) |
 | Prompt enhancer | off (saves VRAM) |
+| CPU offload | on (`LTX_CPU_OFFLOAD=1`) — T5/VAE in RAM, ~7–8GB VRAM peak |
 
 `704×480` multi-scale OOMs on 12GB. After a first run succeeds, you can try `640×384` then `704×480`. On 16GB+ switch `LTX_PIPELINE_CONFIG` to `configs/ltxv-2b-0.9.8-distilled.yaml`.
 
@@ -90,7 +91,7 @@ python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_
 python scripts/download_models.py
 ```
 
-Copy `.env.example` to `.env` on the GPU server. On 12GB cards keep `LTX_PIPELINE_CONFIG=configs/ltxv-2b-0.9.8-distilled-lowvram.yaml`, `LTX_MAX_GPU_MEMORY_GB=0`, and `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. Generate at 512×320 × 49 — do not use 704×480 or the multi-scale yaml. First request downloads remaining Hugging Face deps (T5 text encoder) if they are not cached, then loads the pipeline once and reuses it.
+Copy `.env.example` to `.env` on the GPU server. On 12GB cards keep `LTX_PIPELINE_CONFIG=configs/ltxv-2b-0.9.8-distilled-lowvram.yaml`, `LTX_MAX_GPU_MEMORY_GB=0`, `LTX_CPU_OFFLOAD=1`, and `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`. Generate at 512×320 × 49 — do not use 704×480 or the multi-scale yaml. `LTX_CPU_OFFLOAD=1` leaves T5 and the VAE in system RAM so peak VRAM is roughly 7–8GB (slower; wants ~24GB RAM). First request downloads remaining Hugging Face deps (T5 text encoder) if they are not cached, then loads the pipeline once and reuses it.
 
 Weights used:
 
