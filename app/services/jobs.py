@@ -48,6 +48,7 @@ class Job:
             "width": self.width,
             "height": self.height,
             "num_frames": self.num_frames,
+            "frame_rate": self.frame_rate,
             "seed": self.seed,
             "video_url": video_url,
             "error": self.error,

@@ -120,7 +120,7 @@
         const res = await fetch("/api/v1/jobs", { method: "POST", body: data });
         const job = await res.json();
         if (!res.ok) throw new Error(job.detail || JSON.stringify(job));
-        statusEl.textContent = `Queued ${job.job_id}\nPolling for video_url…`;
+        statusEl.textContent = `Queued ${job.job_id}\n${job.width}×${job.height} · ${job.num_frames} frames @ ${job.frame_rate} fps\nPolling for video_url…`;
         const done = await poll(job.job_id);
         if (done.status !== "succeeded") throw new Error(done.error || done.status);
         statusEl.textContent = `Done.\nvideo_url: ${playableUrl(done.video_url)}`;
@@ -137,7 +137,10 @@
       while (true) {
         const res = await fetch(`/api/v1/jobs/${id}`);
         const job = await res.json();
-        statusEl.textContent = `Job ${id}\nstatus: ${job.status}` + (job.video_url ? `\nvideo_url: ${playableUrl(job.video_url)}` : "");
+        statusEl.textContent =
+          `Job ${id}\nstatus: ${job.status}` +
+          (job.frame_rate ? `\n${job.width}×${job.height} · ${job.num_frames}f @ ${job.frame_rate} fps` : "") +
+          (job.video_url ? `\nvideo_url: ${playableUrl(job.video_url)}` : "");
         if (job.status === "succeeded" || job.status === "failed") return job;
         await new Promise((r) => setTimeout(r, 2000));
       }

@@ -10,6 +10,7 @@ class JobResponse(BaseModel):
     width: int
     height: int
     num_frames: int
+    frame_rate: int
     seed: int
     video_url: str | None = None
     error: str | None = None
