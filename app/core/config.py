@@ -26,8 +26,10 @@ class Settings(BaseSettings):
     ltx_default_frame_rate: int = 24
     ltx_default_seed: int = 42
     ltx_negative_prompt: str = (
-        "worst quality, inconsistent motion, blurry, jittery, distorted"
+        "worst quality, inconsistent motion, blurry, jittery, distorted, "
+        "morphing, warped face, extra fingers, plastic skin, oversharpened"
     )
+    ltx_default_image_cond_noise_scale: float = 0.15
 
     max_upload_mb: int = 20
     job_ttl_seconds: int = 86400

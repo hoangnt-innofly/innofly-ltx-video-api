@@ -30,6 +30,7 @@ class Job:
     frame_rate: int
     seed: int
     negative_prompt: str
+    image_cond_noise_scale: float = 0.15
     status: JobStatus = "queued"
     error: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -85,6 +86,7 @@ class JobService:
         frame_rate: int | None,
         seed: int | None,
         negative_prompt: str | None,
+        image_cond_noise_scale: float | None = None,
     ) -> Job:
         job_id = uuid.uuid4().hex
         width = align_resolution(width or self.settings.ltx_default_width)
@@ -114,6 +116,11 @@ class JobService:
             frame_rate=frame_rate or self.settings.ltx_default_frame_rate,
             seed=seed if seed is not None else self.settings.ltx_default_seed,
             negative_prompt=negative_prompt or self.settings.ltx_negative_prompt,
+            image_cond_noise_scale=(
+                image_cond_noise_scale
+                if image_cond_noise_scale is not None
+                else self.settings.ltx_default_image_cond_noise_scale
+            ),
         )
         self.jobs[job_id] = job
         self._queue.put_nowait(job_id)
@@ -207,6 +214,7 @@ class JobService:
             frame_rate=job.frame_rate,
             seed=job.seed,
             negative_prompt=job.negative_prompt,
+            image_cond_noise_scale=job.image_cond_noise_scale,
         )
 
     def _get_engine(self):

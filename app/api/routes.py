@@ -51,6 +51,8 @@ def health() -> HealthResponse:
             "num_frames": settings.ltx_default_num_frames,
             "frame_rate": settings.ltx_default_frame_rate,
             "seed": settings.ltx_default_seed,
+            "negative_prompt": settings.ltx_negative_prompt,
+            "image_cond_noise_scale": settings.ltx_default_image_cond_noise_scale,
             "model": "ltxv-2b-0.9.8-distilled",
             "pipeline_config": settings.ltx_pipeline_config,
             "max_gpu_memory_gb": settings.ltx_max_gpu_memory_gb,
@@ -70,10 +72,13 @@ async def generate(
     frame_rate: Annotated[Optional[int], Form()] = None,
     seed: Annotated[Optional[int], Form()] = None,
     negative_prompt: Annotated[Optional[str], Form()] = None,
+    image_cond_noise_scale: Annotated[Optional[float], Form()] = None,
     wait: Annotated[bool, Form()] = True,
 ) -> JobResponse:
     """Upload an image + prompt. By default waits until the mp4 is ready and returns video_url."""
-    job = await _enqueue(image, prompt, width, height, num_frames, frame_rate, seed, negative_prompt)
+    job = await _enqueue(
+        image, prompt, width, height, num_frames, frame_rate, seed, negative_prompt, image_cond_noise_scale
+    )
     if wait:
         try:
             job = await jobs.wait(job.id, timeout=1200)
@@ -95,9 +100,12 @@ async def create_job(
     frame_rate: Annotated[Optional[int], Form()] = None,
     seed: Annotated[Optional[int], Form()] = None,
     negative_prompt: Annotated[Optional[str], Form()] = None,
+    image_cond_noise_scale: Annotated[Optional[float], Form()] = None,
 ) -> JobResponse:
     """Queue a job and return immediately. Poll GET /api/v1/jobs/{job_id} for video_url."""
-    job = await _enqueue(image, prompt, width, height, num_frames, frame_rate, seed, negative_prompt)
+    job = await _enqueue(
+        image, prompt, width, height, num_frames, frame_rate, seed, negative_prompt, image_cond_noise_scale
+    )
     return to_response(request, job)
 
 
@@ -126,6 +134,7 @@ async def _enqueue(
     frame_rate: int | None,
     seed: int | None,
     negative_prompt: str | None,
+    image_cond_noise_scale: float | None = None,
 ):
     suffix = Path(image.filename or "input.jpg").suffix.lower()
     content_type = (image.content_type or "").lower()
@@ -160,4 +169,5 @@ async def _enqueue(
         frame_rate=frame_rate,
         seed=seed,
         negative_prompt=negative_prompt,
+        image_cond_noise_scale=image_cond_noise_scale,
     )

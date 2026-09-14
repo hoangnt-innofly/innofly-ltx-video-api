@@ -33,7 +33,10 @@
       <label>Image</label>
       <input type="file" name="image" accept="image/jpeg,image/png,image/webp" required />
       <label>Prompt</label>
-      <textarea name="prompt" required>A young anime boy slowly turns his head and smiles, cinematic animation</textarea>
+      <textarea name="prompt" required>Natural slow motion, photorealistic, the person turns their head slightly and breathes, skin pores and fabric texture visible, soft daylight, 24mm lens, subtle camera drift, cinematic</textarea>
+      <label>Negative prompt</label>
+      <textarea name="negative_prompt">worst quality, inconsistent motion, blurry, jittery, distorted, morphing, warped face, extra fingers, plastic skin, oversharpened</textarea>
+      <p class="hint">Describe lighting, materials, and a small real motion. Distilled 2B ignores CFG so negative prompt helps less than a precise prompt.</p>
       <div class="row">
         <div>
           <label>Width</label>
@@ -59,6 +62,11 @@
           <input type="number" name="seed" value="42" />
           <p class="hint">Same seed + same settings ≈ same motion</p>
         </div>
+      </div>
+      <div>
+        <label>Image cond noise (0–0.5)</label>
+        <input type="number" name="image_cond_noise_scale" value="0.15" min="0" max="0.5" step="0.05" />
+        <p class="hint">Lower (0.05–0.1) = closer to the photo. Higher (0.2–0.3) = more motion, less likeness.</p>
       </div>
       <button type="submit" id="btn">Generate video</button>
     </form>
@@ -97,6 +105,8 @@
         set("num_frames", d.num_frames);
         set("frame_rate", d.frame_rate);
         set("seed", d.seed);
+        set("negative_prompt", d.negative_prompt);
+        set("image_cond_noise_scale", d.image_cond_noise_scale);
       })
       .catch(() => {});
 
