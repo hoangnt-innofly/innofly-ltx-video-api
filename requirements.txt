@@ -7,3 +7,4 @@ imageio[ffmpeg]>=2.36.0
 numpy>=1.26.0
 Pillow>=10.4.0
 huggingface_hub>=0.30.0
+accelerate>=0.17.0

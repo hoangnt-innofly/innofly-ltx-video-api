@@ -216,9 +216,7 @@ class LTXEngine:
         finally:
             if self.cpu_offload:
                 self._rest_on_cpu()
-                pipe = self._inner_pipeline()
-                if pipe is not None and hasattr(pipe, "enable_model_cpu_offload"):
-                    pipe.enable_model_cpu_offload(device=self.device)
+                self._try_enable_diffusers_offload()
             self._free_cuda()
 
     @staticmethod
@@ -255,14 +253,53 @@ class LTXEngine:
     def _enable_cpu_offload(self) -> None:
         pipe = self._inner_pipeline()
         self._rest_on_cpu()
-        if hasattr(pipe, "enable_model_cpu_offload"):
-            pipe.enable_model_cpu_offload(device=self.device)
+        hooked = self._try_enable_diffusers_offload()
+        if not hooked:
+            self._force_cuda_execution_device(pipe)
         self._patch_cpu_clears_cache(getattr(pipe, "text_encoder", None))
         self._patch_cpu_clears_cache(getattr(pipe, "transformer", None))
         self._wrap_vae_decode_on_gpu(getattr(pipe, "vae", None))
         logger.info(
-            "CPU offload enabled: T5/transformer/VAE stay in RAM; GPU runs one stage at a time"
+            "CPU offload enabled (%s): T5/VAE stay in RAM; GPU runs one stage at a time",
+            "accelerate hooks" if hooked else "manual, no accelerate",
         )
+
+    def _try_enable_diffusers_offload(self) -> bool:
+        pipe = self._inner_pipeline()
+        if pipe is None or not hasattr(pipe, "enable_model_cpu_offload"):
+            return False
+        try:
+            pipe.enable_model_cpu_offload(device=self.device)
+            return True
+        except ImportError as exc:
+            logger.warning(
+                "%s — sequential offload will run without accelerate hooks. "
+                "Optional: pip install 'accelerate>=0.17.0'",
+                exc,
+            )
+            return False
+
+    def _force_cuda_execution_device(self, pipe) -> None:
+        """Make pipeline.__call__ move T5/transformer onto CUDA even when weights idle on CPU."""
+        if pipe is None:
+            return
+        device = torch.device(self.device)
+        pipe._ltx_cuda_device = device
+        cls = type(pipe)
+        if getattr(cls, "_ltx_execution_patched", False):
+            return
+        orig = cls.__dict__.get("_execution_device")
+
+        def _execution_device(this):
+            forced = getattr(this, "_ltx_cuda_device", None)
+            if forced is not None:
+                return forced
+            if isinstance(orig, property) and orig.fget is not None:
+                return orig.fget(this)
+            return device
+
+        cls._execution_device = property(_execution_device)
+        cls._ltx_execution_patched = True
 
     def _rest_on_cpu(self) -> None:
         pipe = self._inner_pipeline()
