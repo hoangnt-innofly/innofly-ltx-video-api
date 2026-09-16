@@ -72,8 +72,8 @@
       <div class="row row-2">
         <div>
           <label>Tốc độ khung (fps)</label>
-          <input type="number" name="frame_rate" value="24" min="8" max="30" />
-          <p class="hint">24 mượt hơn. 12 dài gấp đôi nhưng chậm/giật.</p>
+          <input type="number" name="frame_rate" value="8" min="8" max="30" />
+          <p class="hint">24 mượt hơn nhưng clip ngắn hơn.</p>
         </div>
         <div>
           <label>Seed</label>
@@ -157,32 +157,6 @@
     imageInput.addEventListener("change", updateModeUi);
     updateDuration();
     updateModeUi();
-
-    let applyServerDefaults = true;
-    form.addEventListener("input", () => {
-      applyServerDefaults = false;
-    }, { once: true });
-
-    fetch("/health")
-      .then((r) => r.json())
-      .then((h) => {
-        if (!applyServerDefaults) return;
-        const d = h.defaults || {};
-        const set = (name, value) => {
-          if (value === undefined || value === null) return;
-          const el = form.elements.namedItem(name);
-          if (el) el.value = value;
-        };
-        set("width", d.width);
-        set("height", d.height);
-        set("num_frames", d.num_frames);
-        set("frame_rate", d.frame_rate);
-        set("seed", d.seed);
-        set("negative_prompt", d.negative_prompt);
-        set("image_cond_noise_scale", d.image_cond_noise_scale);
-        updateDuration();
-      })
-      .catch(() => {});
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
