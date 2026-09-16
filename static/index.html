@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="vi">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>LTX-Video 2B · I2V demo</title>
+  <title>LTX-Video 2B · Ảnh thành video</title>
   <style>
     :root { color-scheme: dark; --bg: #0f1115; --card: #181b22; --line: #2a2f3a; --text: #e8eaed; --muted: #9aa3b2; --accent: #7c5cff; }
     * { box-sizing: border-box; }
@@ -18,6 +18,16 @@
     .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
     .row-2 { grid-template-columns: 1fr 1fr; }
     .hint { font-size: 0.75rem; color: var(--muted); margin: 4px 0 0; }
+    .warn { font-size: 0.75rem; color: #e8b86d; margin: 4px 0 0; }
+    .duration {
+      margin-top: 16px;
+      padding: 12px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--line);
+      background: #101318;
+      font-size: 0.95rem;
+    }
+    .duration strong { color: #c4b5ff; }
     button { margin-top: 18px; width: 100%; border: 0; border-radius: 10px; padding: 12px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
     #status { margin-top: 16px; color: var(--muted); white-space: pre-wrap; }
@@ -27,48 +37,56 @@
 </head>
 <body>
   <main>
-    <h1>LTX-Video 2B · Image to Video</h1>
-    <p class="sub">Upload an image and a prompt. Submit returns a job, then a <code>video_url</code>. API docs: <a class="docs" href="/docs">/docs</a></p>
+    <h1>LTX-Video 2B · Ảnh thành video</h1>
+    <p class="sub">Tải ảnh và mô tả chuyển động. Hệ thống trả <code>video_url</code>. Tài liệu API: <a class="docs" href="/docs">/docs</a></p>
     <form id="form">
-      <label>Image</label>
+      <label>Ảnh</label>
       <input type="file" name="image" accept="image/jpeg,image/png,image/webp" required />
-      <label>Prompt</label>
+      <label>Mô tả (prompt)</label>
       <textarea name="prompt" required>Natural slow motion, photorealistic, the person turns their head slightly and breathes, skin pores and fabric texture visible, soft daylight, 24mm lens, subtle camera drift, cinematic</textarea>
-      <label>Negative prompt</label>
+      <p class="hint">Nên viết tiếng Anh. Ghi rõ ánh sáng, chất liệu và chuyển động nhỏ.</p>
+      <label>Mô tả loại trừ (negative prompt)</label>
       <textarea name="negative_prompt">worst quality, inconsistent motion, blurry, jittery, distorted, morphing, warped face, extra fingers, plastic skin, oversharpened</textarea>
-      <p class="hint">Describe lighting, materials, and a small real motion. Distilled 2B ignores CFG so negative prompt helps less than a precise prompt.</p>
+      <p class="hint">Những thứ không muốn xuất hiện. Model distilled gần như không dùng CFG nên prompt chính quan trọng hơn.</p>
       <div class="row">
         <div>
-          <label>Width</label>
-          <input type="number" name="width" value="512" step="32" />
+          <label>Chiều rộng</label>
+          <input type="number" name="width" value="512" step="32" min="32" />
+          <p class="hint">Bội số 32. RTX 12GB nên ~512.</p>
+          <p class="warn">Lớn hơn dễ OOM.</p>
         </div>
         <div>
-          <label>Height</label>
-          <input type="number" name="height" value="320" step="32" />
+          <label>Chiều cao</label>
+          <input type="number" name="height" value="320" step="32" min="32" />
+          <p class="hint">Bội số 32. RTX 12GB nên ~320.</p>
+          <p class="warn">Lớn hơn dễ OOM.</p>
         </div>
         <div>
-          <label>Frames (8n+1)</label>
-          <input type="number" name="num_frames" value="33" min="9" step="8" />
+          <label>Số khung (8n+1)</label>
+          <input type="number" name="num_frames" value="33" min="9" step="1" />
+          <p class="hint">Hợp lệ: 25, 33, 41, 49, 81…</p>
+          <p class="warn">Nhiều khung hơn = clip dài hơn, tốn VRAM, dễ OOM.</p>
         </div>
       </div>
       <div class="row row-2">
         <div>
-          <label>Frame rate</label>
+          <label>Tốc độ khung (fps)</label>
           <input type="number" name="frame_rate" value="24" min="8" max="30" />
-          <p class="hint">Duration ≈ frames / fps (33/24 ≈ 1.4s, 33/12 ≈ 2.8s)</p>
+          <p class="hint">24 mượt hơn. 12 dài gấp đôi nhưng chậm/giật.</p>
         </div>
         <div>
           <label>Seed</label>
           <input type="number" name="seed" value="42" />
-          <p class="hint">Same seed + same settings ≈ same motion</p>
+          <p class="hint">Cùng ảnh + mô tả + seed ≈ cùng chuyển động.</p>
         </div>
       </div>
       <div>
-        <label>Image cond noise (0–0.5)</label>
+        <label>Nhiễu bám ảnh (0–0.5)</label>
         <input type="number" name="image_cond_noise_scale" value="0.15" min="0" max="0.5" step="0.05" />
-        <p class="hint">Lower (0.05–0.1) = closer to the photo. Higher (0.2–0.3) = more motion, less likeness.</p>
+        <p class="hint">0.05–0.1 bám ảnh hơn. 0.2–0.3 cử động nhiều, dễ méo mặt.</p>
       </div>
-      <button type="submit" id="btn">Generate video</button>
+      <div class="duration" id="duration">Độ dài video: —</div>
+      <button type="submit" id="btn">Tạo video</button>
     </form>
     <p id="status"></p>
     <video id="player" controls></video>
@@ -78,6 +96,9 @@
     const statusEl = document.getElementById("status");
     const btn = document.getElementById("btn");
     const player = document.getElementById("player");
+    const durationEl = document.getElementById("duration");
+    const framesInput = form.elements.namedItem("num_frames");
+    const fpsInput = form.elements.namedItem("frame_rate");
 
     function playableUrl(url) {
       try {
@@ -91,9 +112,48 @@
       }
     }
 
+    function alignFrames(value) {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n < 9) return 9;
+      return Math.floor((n - 1) / 8) * 8 + 1;
+    }
+
+    function formatDuration(seconds) {
+      if (!Number.isFinite(seconds) || seconds <= 0) return "—";
+      const rounded = Math.round(seconds * 100) / 100;
+      return rounded.toLocaleString("vi-VN", { maximumFractionDigits: 2 }) + " giây";
+    }
+
+    function updateDuration() {
+      const frames = alignFrames(framesInput.value);
+      const fps = Number(fpsInput.value);
+      if (!fps || fps <= 0) {
+        durationEl.innerHTML = "Độ dài video: <strong>—</strong> (cần tốc độ khung &gt; 0)";
+        return;
+      }
+      const seconds = frames / fps;
+      const typed = Number(framesInput.value);
+      const alignedNote = Number.isFinite(typed) && typed !== frames
+        ? " → dùng " + frames + " vì LTX cần 8n+1"
+        : "";
+      durationEl.innerHTML =
+        "Độ dài video: <strong>" + formatDuration(seconds) + "</strong>" +
+        " <span class='hint' style='display:inline'>(" + frames + " khung ÷ " + fps + " fps" + alignedNote + ")</span>";
+    }
+
+    framesInput.addEventListener("input", updateDuration);
+    fpsInput.addEventListener("input", updateDuration);
+    updateDuration();
+
+    let applyServerDefaults = true;
+    form.addEventListener("input", () => {
+      applyServerDefaults = false;
+    }, { once: true });
+
     fetch("/health")
       .then((r) => r.json())
       .then((h) => {
+        if (!applyServerDefaults) return;
         const d = h.defaults || {};
         const set = (name, value) => {
           if (value === undefined || value === null) return;
@@ -107,6 +167,7 @@
         set("seed", d.seed);
         set("negative_prompt", d.negative_prompt);
         set("image_cond_noise_scale", d.image_cond_noise_scale);
+        updateDuration();
       })
       .catch(() => {});
 
@@ -114,20 +175,25 @@
       e.preventDefault();
       btn.disabled = true;
       player.style.display = "none";
-      statusEl.textContent = "Uploading…";
+      statusEl.textContent = "Đang tải ảnh…";
       const data = new FormData(form);
       try {
         const res = await fetch("/api/v1/jobs", { method: "POST", body: data });
         const job = await res.json();
         if (!res.ok) throw new Error(job.detail || JSON.stringify(job));
-        statusEl.textContent = `Queued ${job.job_id}\n${job.width}×${job.height} · ${job.num_frames} frames @ ${job.frame_rate} fps\nPolling for video_url…`;
+        const seconds = job.frame_rate ? (job.num_frames / job.frame_rate) : null;
+        statusEl.textContent =
+          "Đã xếp hàng " + job.job_id +
+          "\n" + job.width + "×" + job.height + " · " + job.num_frames + " khung @ " + job.frame_rate + " fps" +
+          (seconds ? " · " + formatDuration(seconds) : "") +
+          "\nĐang chờ video_url…";
         const done = await poll(job.job_id);
         if (done.status !== "succeeded") throw new Error(done.error || done.status);
-        statusEl.textContent = `Done.\nvideo_url: ${playableUrl(done.video_url)}`;
+        statusEl.textContent = "Xong.\nvideo_url: " + playableUrl(done.video_url);
         player.src = playableUrl(done.video_url);
         player.style.display = "block";
       } catch (err) {
-        statusEl.textContent = "Error: " + err.message;
+        statusEl.textContent = "Lỗi: " + err.message;
       } finally {
         btn.disabled = false;
       }
@@ -137,10 +203,11 @@
       while (true) {
         const res = await fetch(`/api/v1/jobs/${id}`);
         const job = await res.json();
+        const seconds = job.frame_rate ? (job.num_frames / job.frame_rate) : null;
         statusEl.textContent =
-          `Job ${id}\nstatus: ${job.status}` +
-          (job.frame_rate ? `\n${job.width}×${job.height} · ${job.num_frames}f @ ${job.frame_rate} fps` : "") +
-          (job.video_url ? `\nvideo_url: ${playableUrl(job.video_url)}` : "");
+          "Job " + id + "\ntrạng thái: " + job.status +
+          (job.frame_rate ? "\n" + job.width + "×" + job.height + " · " + job.num_frames + " khung @ " + job.frame_rate + " fps" + (seconds ? " · " + formatDuration(seconds) : "") : "") +
+          (job.video_url ? "\nvideo_url: " + playableUrl(job.video_url) : "");
         if (job.status === "succeeded" || job.status === "failed") return job;
         await new Promise((r) => setTimeout(r, 2000));
       }
