@@ -65,7 +65,7 @@ def health() -> HealthResponse:
 async def generate(
     request: Request,
     prompt: Annotated[str, Form(min_length=1)],
-    image: Annotated[UploadFile | None, File(None)] = None,
+    image: Annotated[UploadFile | None, File()] = None,
     width: Annotated[Optional[int], Form()] = None,
     height: Annotated[Optional[int], Form()] = None,
     num_frames: Annotated[Optional[int], Form()] = None,
@@ -93,7 +93,7 @@ async def generate(
 async def create_job(
     request: Request,
     prompt: Annotated[str, Form(min_length=1)],
-    image: Annotated[UploadFile | None, File(None)] = None,
+    image: Annotated[UploadFile | None, File()] = None,
     width: Annotated[Optional[int], Form()] = None,
     height: Annotated[Optional[int], Form()] = None,
     num_frames: Annotated[Optional[int], Form()] = None,
