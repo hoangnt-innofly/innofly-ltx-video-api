@@ -22,7 +22,7 @@ JobStatus = Literal["queued", "running", "succeeded", "failed"]
 class Job:
     id: str
     prompt: str
-    image_path: Path
+    image_path: Path | None
     video_path: Path
     width: int
     height: int
@@ -50,6 +50,7 @@ class Job:
             "num_frames": self.num_frames,
             "frame_rate": self.frame_rate,
             "seed": self.seed,
+            "mode": "i2v" if self.image_path is not None else "t2v",
             "video_url": video_url,
             "error": self.error,
         }
@@ -80,7 +81,7 @@ class JobService:
         self,
         *,
         prompt: str,
-        image_path: Path,
+        image_path: Path | None,
         width: int | None,
         height: int | None,
         num_frames: int | None,
@@ -181,8 +182,7 @@ class JobService:
             return
 
         engine = self._get_engine()
-        engine.generate_i2v(
-            image_path=job.image_path,
+        engine.generate(
             prompt=job.prompt,
             output_path=job.video_path,
             height=job.height,
@@ -191,6 +191,7 @@ class JobService:
             frame_rate=job.frame_rate,
             seed=job.seed,
             negative_prompt=job.negative_prompt,
+            image_path=job.image_path,
             image_cond_noise_scale=job.image_cond_noise_scale,
         )
 

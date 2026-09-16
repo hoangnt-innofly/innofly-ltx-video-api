@@ -37,14 +37,15 @@
 </head>
 <body>
   <main>
-    <h1>LTX-Video 2B · Ảnh thành video</h1>
-    <p class="sub">Tải ảnh và mô tả chuyển động. Hệ thống trả <code>video_url</code>. Tài liệu API: <a class="docs" href="/docs">/docs</a></p>
+    <h1>LTX-Video 2B · Text / Ảnh thành video</h1>
+    <p class="sub">Nhập mô tả. Ảnh tùy chọn: không ảnh = text-to-video, có ảnh = image-to-video. Tài liệu API: <a class="docs" href="/docs">/docs</a></p>
     <form id="form">
-      <label>Ảnh</label>
-      <input type="file" name="image" accept="image/jpeg,image/png,image/webp" required />
+      <label>Ảnh (không bắt buộc)</label>
+      <input type="file" name="image" accept="image/jpeg,image/png,image/webp" />
+      <p class="hint">Bỏ trống để gen từ text. Chọn ảnh thì khung đầu bám theo ảnh.</p>
       <label>Mô tả (prompt)</label>
       <textarea name="prompt" required>Natural slow motion, photorealistic, the person turns their head slightly and breathes, skin pores and fabric texture visible, soft daylight, 24mm lens, subtle camera drift, cinematic</textarea>
-      <p class="hint">Nên viết tiếng Anh. Ghi rõ ánh sáng, chất liệu và chuyển động nhỏ.</p>
+      <p class="hint">Nên viết tiếng Anh. Text-to-video: mô tả cảnh + ánh sáng + chuyển động. Có ảnh: mô tả chuyển động trên ảnh đó.</p>
       <label>Mô tả loại trừ (negative prompt)</label>
       <textarea name="negative_prompt">worst quality, inconsistent motion, blurry, jittery, distorted, morphing, warped face, extra fingers, plastic skin, oversharpened</textarea>
       <p class="hint">Những thứ không muốn xuất hiện. Model distilled gần như không dùng CFG nên prompt chính quan trọng hơn.</p>
@@ -77,13 +78,13 @@
         <div>
           <label>Seed</label>
           <input type="number" name="seed" value="42" />
-          <p class="hint">Cùng ảnh + mô tả + seed ≈ cùng chuyển động.</p>
+          <p class="hint">Cùng prompt (+ ảnh) + seed ≈ cùng kết quả.</p>
         </div>
       </div>
-      <div>
+      <div id="noise-row">
         <label>Nhiễu bám ảnh (0–0.5)</label>
         <input type="number" name="image_cond_noise_scale" value="0.15" min="0" max="0.5" step="0.05" />
-        <p class="hint">0.05–0.1 bám ảnh hơn. 0.2–0.3 cử động nhiều, dễ méo mặt.</p>
+        <p class="hint">Chỉ dùng khi có ảnh. 0.05–0.1 bám ảnh hơn. 0.2–0.3 cử động nhiều, dễ méo mặt.</p>
       </div>
       <div class="duration" id="duration">Độ dài video: —</div>
       <button type="submit" id="btn">Tạo video</button>
@@ -99,6 +100,16 @@
     const durationEl = document.getElementById("duration");
     const framesInput = form.elements.namedItem("num_frames");
     const fpsInput = form.elements.namedItem("frame_rate");
+    const imageInput = form.elements.namedItem("image");
+    const noiseRow = document.getElementById("noise-row");
+
+    function hasImage() {
+      return Boolean(imageInput && imageInput.files && imageInput.files[0]);
+    }
+
+    function updateModeUi() {
+      if (noiseRow) noiseRow.style.display = hasImage() ? "" : "none";
+    }
 
     function playableUrl(url) {
       try {
@@ -143,7 +154,9 @@
 
     framesInput.addEventListener("input", updateDuration);
     fpsInput.addEventListener("input", updateDuration);
+    imageInput.addEventListener("change", updateModeUi);
     updateDuration();
+    updateModeUi();
 
     let applyServerDefaults = true;
     form.addEventListener("input", () => {
@@ -175,16 +188,18 @@
       e.preventDefault();
       btn.disabled = true;
       player.style.display = "none";
-      statusEl.textContent = "Đang tải ảnh…";
+      statusEl.textContent = hasImage() ? "Đang tải ảnh…" : "Đang xếp hàng text-to-video…";
       const data = new FormData(form);
+      if (!hasImage()) data.delete("image");
       try {
         const res = await fetch("/api/v1/jobs", { method: "POST", body: data });
         const job = await res.json();
         if (!res.ok) throw new Error(job.detail || JSON.stringify(job));
         const seconds = job.frame_rate ? (job.num_frames / job.frame_rate) : null;
+        const modeLabel = job.mode === "t2v" ? "text-to-video" : "image-to-video";
         statusEl.textContent =
           "Đã xếp hàng " + job.job_id +
-          "\n" + job.width + "×" + job.height + " · " + job.num_frames + " khung @ " + job.frame_rate + " fps" +
+          "\n" + modeLabel + " · " + job.width + "×" + job.height + " · " + job.num_frames + " khung @ " + job.frame_rate + " fps" +
           (seconds ? " · " + formatDuration(seconds) : "") +
           "\nĐang chờ video_url…";
         const done = await poll(job.job_id);
@@ -204,9 +219,10 @@
         const res = await fetch(`/api/v1/jobs/${id}`);
         const job = await res.json();
         const seconds = job.frame_rate ? (job.num_frames / job.frame_rate) : null;
+        const modeLabel = job.mode === "t2v" ? "text-to-video" : "image-to-video";
         statusEl.textContent =
           "Job " + id + "\ntrạng thái: " + job.status +
-          (job.frame_rate ? "\n" + job.width + "×" + job.height + " · " + job.num_frames + " khung @ " + job.frame_rate + " fps" + (seconds ? " · " + formatDuration(seconds) : "") : "") +
+          (job.frame_rate ? "\n" + modeLabel + " · " + job.width + "×" + job.height + " · " + job.num_frames + " khung @ " + job.frame_rate + " fps" + (seconds ? " · " + formatDuration(seconds) : "") : "") +
           (job.video_url ? "\nvideo_url: " + playableUrl(job.video_url) : "");
         if (job.status === "succeeded" || job.status === "failed") return job;
         await new Promise((r) => setTimeout(r, 2000));

@@ -31,7 +31,7 @@ logger = logging.getLogger("ltx-api")
 
 
 class LTXEngine:
-    """Loads LTX-Video 2B once and reuses it for Image-to-Video jobs."""
+    """Loads LTX-Video 2B once and reuses it for text-to-video and image-to-video jobs."""
 
     def __init__(
         self,
@@ -141,6 +141,33 @@ class LTXEngine:
         negative_prompt: str,
         image_cond_noise_scale: float = 0.15,
     ) -> Path:
+        return self.generate(
+            prompt=prompt,
+            output_path=output_path,
+            height=height,
+            width=width,
+            num_frames=num_frames,
+            frame_rate=frame_rate,
+            seed=seed,
+            negative_prompt=negative_prompt,
+            image_path=image_path,
+            image_cond_noise_scale=image_cond_noise_scale,
+        )
+
+    def generate(
+        self,
+        *,
+        prompt: str,
+        output_path: str | Path,
+        height: int,
+        width: int,
+        num_frames: int,
+        frame_rate: int,
+        seed: int,
+        negative_prompt: str,
+        image_path: str | Path | None = None,
+        image_cond_noise_scale: float = 0.15,
+    ) -> Path:
         if not self._ready:
             self.load()
 
@@ -161,16 +188,18 @@ class LTXEngine:
             if self.cpu_offload:
                 self._free_cuda()
                 self._place_vae_on_gpu()
-            conditioning_items = prepare_conditioning(
-                conditioning_media_paths=[str(image_path)],
-                conditioning_strengths=[1.0],
-                conditioning_start_frames=[0],
-                height=height,
-                width=width,
-                num_frames=num_frames,
-                padding=padding,
-                pipeline=self.pipeline,
-            )
+            conditioning_items = None
+            if image_path is not None:
+                conditioning_items = prepare_conditioning(
+                    conditioning_media_paths=[str(image_path)],
+                    conditioning_strengths=[1.0],
+                    conditioning_start_frames=[0],
+                    height=height,
+                    width=width,
+                    num_frames=num_frames,
+                    padding=padding,
+                    pipeline=self.pipeline,
+                )
 
             generator = torch.Generator(device=self.device).manual_seed(seed)
             images = self.pipeline(

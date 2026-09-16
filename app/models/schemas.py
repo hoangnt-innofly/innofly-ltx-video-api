@@ -12,6 +12,7 @@ class JobResponse(BaseModel):
     num_frames: int
     frame_rate: int
     seed: int
+    mode: str = "i2v"
     video_url: str | None = None
     error: str | None = None
 

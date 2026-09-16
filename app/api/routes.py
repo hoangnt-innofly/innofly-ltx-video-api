@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import Annotated, Optional, TypeGuard
 from uuid import uuid4
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -64,8 +64,8 @@ def health() -> HealthResponse:
 @router.post("/api/v1/generate", response_model=JobResponse)
 async def generate(
     request: Request,
-    image: Annotated[UploadFile, File(description="Conditioning image for Image-to-Video")],
     prompt: Annotated[str, Form(min_length=1)],
+    image: Annotated[UploadFile | None, File(None)] = None,
     width: Annotated[Optional[int], Form()] = None,
     height: Annotated[Optional[int], Form()] = None,
     num_frames: Annotated[Optional[int], Form()] = None,
@@ -75,7 +75,7 @@ async def generate(
     image_cond_noise_scale: Annotated[Optional[float], Form()] = None,
     wait: Annotated[bool, Form()] = True,
 ) -> JobResponse:
-    """Upload an image + prompt. By default waits until the mp4 is ready and returns video_url."""
+    """Text-to-video, or image + prompt for image-to-video. Waits for video_url by default."""
     job = await _enqueue(
         image, prompt, width, height, num_frames, frame_rate, seed, negative_prompt, image_cond_noise_scale
     )
@@ -92,8 +92,8 @@ async def generate(
 @router.post("/api/v1/jobs", response_model=JobResponse, status_code=202)
 async def create_job(
     request: Request,
-    image: Annotated[UploadFile, File()],
     prompt: Annotated[str, Form(min_length=1)],
+    image: Annotated[UploadFile | None, File(None)] = None,
     width: Annotated[Optional[int], Form()] = None,
     height: Annotated[Optional[int], Form()] = None,
     num_frames: Annotated[Optional[int], Form()] = None,
@@ -126,7 +126,7 @@ def get_video(filename: str):
 
 
 async def _enqueue(
-    image: UploadFile,
+    image: UploadFile | None,
     prompt: str,
     width: int | None,
     height: int | None,
@@ -136,20 +136,24 @@ async def _enqueue(
     negative_prompt: str | None,
     image_cond_noise_scale: float | None = None,
 ):
-    suffix = Path(image.filename or "input.jpg").suffix.lower()
-    content_type = (image.content_type or "").lower()
-    if suffix not in ALLOWED_SUFFIXES and content_type not in ALLOWED_IMAGE_TYPES:
-        raise HTTPException(status_code=400, detail="Image must be jpg, png, or webp")
+    dest = None
+    if _has_image(image):
+        suffix = Path(image.filename or "input.jpg").suffix.lower()
+        content_type = (image.content_type or "").lower()
+        if suffix not in ALLOWED_SUFFIXES and content_type not in ALLOWED_IMAGE_TYPES:
+            raise HTTPException(status_code=400, detail="Image must be jpg, png, or webp")
 
-    data = await image.read()
-    max_bytes = settings.max_upload_mb * 1024 * 1024
-    if len(data) > max_bytes:
-        raise HTTPException(
-            status_code=413,
-            detail=f"Image exceeds {settings.max_upload_mb} MB",
-        )
-    if not data:
-        raise HTTPException(status_code=400, detail="Empty image upload")
+        data = await image.read()
+        max_bytes = settings.max_upload_mb * 1024 * 1024
+        if len(data) > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Image exceeds {settings.max_upload_mb} MB",
+            )
+        if not data:
+            raise HTTPException(status_code=400, detail="Empty image upload")
+        dest = settings.upload_dir / f"{uuid4().hex}{suffix or '.jpg'}"
+        dest.write_bytes(data)
 
     if width is not None:
         width = align_resolution(width)
@@ -158,8 +162,6 @@ async def _enqueue(
     if num_frames is not None:
         num_frames = align_frames(num_frames)
 
-    dest = settings.upload_dir / f"{uuid4().hex}{suffix or '.jpg'}"
-    dest.write_bytes(data)
     return jobs.create_job(
         prompt=prompt,
         image_path=dest,
@@ -171,3 +173,10 @@ async def _enqueue(
         negative_prompt=negative_prompt,
         image_cond_noise_scale=image_cond_noise_scale,
     )
+
+
+def _has_image(image: UploadFile | None) -> TypeGuard[UploadFile]:
+    if image is None:
+        return False
+    name = (image.filename or "").strip()
+    return bool(name) and name not in {".", "-"}

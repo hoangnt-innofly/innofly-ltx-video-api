@@ -24,7 +24,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="LTX-Video 2B API",
-    description="Demo backend: upload an image + prompt, get a video URL (LTX-Video 2B distilled).",
+    description="Demo backend: text-to-video or image-to-video with LTX-Video 2B distilled.",
     version="0.1.0",
     lifespan=lifespan,
 )

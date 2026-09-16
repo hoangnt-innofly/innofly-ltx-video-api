@@ -8,7 +8,7 @@ from PIL import Image
 
 
 def generate_placeholder_video(
-    image_path: str | Path,
+    image_path: str | Path | None,
     output_path: str | Path,
     *,
     width: int,
@@ -20,9 +20,13 @@ def generate_placeholder_video(
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    image = Image.open(image_path).convert("RGB")
-    image = image.resize((width, height), Image.Resampling.LANCZOS)
-    base = np.asarray(image, dtype=np.uint8)
+    if image_path and Path(image_path).is_file():
+        image = Image.open(image_path).convert("RGB")
+        image = image.resize((width, height), Image.Resampling.LANCZOS)
+        base = np.asarray(image, dtype=np.uint8)
+    else:
+        rng = np.random.default_rng(width * 1000 + height)
+        base = rng.integers(48, 196, size=(height, width, 3), dtype=np.uint8)
 
     with imageio.get_writer(output_path, fps=frame_rate, format="FFMPEG", codec="libx264") as writer:
         for i in range(num_frames):
