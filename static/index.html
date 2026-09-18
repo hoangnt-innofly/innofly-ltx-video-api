@@ -30,13 +30,88 @@
     .duration strong { color: #c4b5ff; }
     button { margin-top: 18px; width: 100%; border: 0; border-radius: 10px; padding: 12px; background: var(--accent); color: white; font-weight: 600; cursor: pointer; }
     button:disabled { opacity: 0.6; cursor: not-allowed; }
-    #status { margin-top: 16px; color: var(--muted); white-space: pre-wrap; }
+    #status, #outfit-status { margin-top: 16px; color: var(--muted); white-space: pre-wrap; }
     video { width: 100%; margin-top: 16px; border-radius: 12px; background: #000; display: none; }
     a.docs { color: #b9a8ff; }
+    nav.menu {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 22px;
+      padding: 6px;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+    }
+    nav.menu a {
+      flex: 1;
+      text-align: center;
+      text-decoration: none;
+      color: var(--muted);
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.92rem;
+    }
+    nav.menu a.active { background: var(--accent); color: #fff; }
+    .uploads { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .upload-card {
+      border: 1px dashed var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: #101318;
+      min-height: 220px;
+    }
+    .upload-card label { margin-top: 0; }
+    .upload-card img {
+      width: 100%;
+      max-height: 280px;
+      object-fit: contain;
+      border-radius: 8px;
+      margin-top: 8px;
+      background: #000;
+      display: none;
+    }
+    .screen { display: none; }
+    .screen.active { display: block; }
+    details.accordion {
+      margin-top: 16px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #101318;
+      padding: 0 12px 12px;
+    }
+    details.accordion summary {
+      cursor: pointer;
+      padding: 12px 4px;
+      color: var(--text);
+      font-weight: 600;
+      list-style: none;
+    }
+    details.accordion summary::-webkit-details-marker { display: none; }
+    details.accordion summary::after {
+      content: "▾";
+      float: right;
+      color: var(--muted);
+    }
+    details.accordion textarea { min-height: 110px; }
+    .reset-btn {
+      margin-top: 10px;
+      width: auto;
+      padding: 8px 12px;
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--muted);
+    }
   </style>
 </head>
 <body>
   <main>
+    <nav class="menu">
+      <a href="#studio" id="nav-studio" class="active">Tạo video</a>
+      <a href="#outfit" id="nav-outfit">Thay đồ</a>
+    </nav>
+
+    <section id="screen-studio" class="screen active">
     <h1>LTX-Video 2B · Text / Ảnh thành video</h1>
     <p class="sub">Nhập mô tả. Ảnh tùy chọn: không ảnh = text-to-video, có ảnh = image-to-video. Tài liệu API: <a class="docs" href="/docs">/docs</a></p>
     <form id="form">
@@ -91,6 +166,46 @@
     </form>
     <p id="status"></p>
     <video id="player" controls></video>
+    </section>
+
+    <section id="screen-outfit" class="screen">
+      <h1>Thay đồ · Đi ra rồi đi vào</h1>
+      <p class="sub">Chỉ cần 2 ảnh cùng người, 2 bộ đồ. Prompt đã gài sẵn: ảnh 1 đi ra khỏi khung, ảnh 2 đi vào như vừa thay đồ.</p>
+      <form id="outfit-form">
+        <div class="uploads">
+          <div class="upload-card">
+            <label>Ảnh 1 · đồ hiện tại</label>
+            <input type="file" name="image_before" id="image-before" accept="image/jpeg,image/png,image/webp" required />
+            <p class="hint">Người đứng giữa khung, full body.</p>
+            <img id="preview-before" alt="Xem ảnh 1" />
+          </div>
+          <div class="upload-card">
+            <label>Ảnh 2 · đồ mới</label>
+            <input type="file" name="image_after" id="image-after" accept="image/jpeg,image/png,image/webp" required />
+            <p class="hint">Cùng người, cùng góc máy, bộ khác.</p>
+            <img id="preview-after" alt="Xem ảnh 2" />
+          </div>
+        </div>
+        <p class="hint" style="margin-top:14px">Mặc định: đi sang phải ra khỏi màn hình → khoảng trống → đi vào lại với đồ mới. Portrait 320×512, RTX 12GB.</p>
+        <details class="accordion">
+          <summary>Prompt trái / phải · xem và sửa</summary>
+          <label>Hướng đi</label>
+          <select name="direction" id="outfit-direction">
+            <option value="right" selected>Phải — đi ra phải, đi vào từ phải</option>
+            <option value="left">Trái — đi ra trái, đi vào từ trái</option>
+          </select>
+          <p class="hint">Đổi hướng sẽ nạp prompt mặc định tương ứng. Sửa text bên dưới rồi bấm tạo video.</p>
+          <label>Prompt đi ra (ảnh 1)</label>
+          <textarea name="walk_out_prompt" id="walk-out-prompt"></textarea>
+          <label>Prompt đi vào (ảnh 2)</label>
+          <textarea name="walk_in_prompt" id="walk-in-prompt"></textarea>
+          <button type="button" class="reset-btn" id="reset-prompts">Khôi phục prompt mặc định</button>
+        </details>
+        <button type="submit" id="outfit-btn">Tạo video thay đồ</button>
+      </form>
+      <p id="outfit-status"></p>
+      <video id="outfit-player" controls></video>
+    </section>
   </main>
   <script>
     const form = document.getElementById("form");
@@ -197,6 +312,123 @@
         statusEl.textContent =
           "Job " + id + "\ntrạng thái: " + job.status +
           (job.frame_rate ? "\n" + modeLabel + " · " + job.width + "×" + job.height + " · " + job.num_frames + " khung @ " + job.frame_rate + " fps" + (seconds ? " · " + formatDuration(seconds) : "") : "") +
+          (job.video_url ? "\nvideo_url: " + playableUrl(job.video_url) : "");
+        if (job.status === "succeeded" || job.status === "failed") return job;
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+
+    const studioScreen = document.getElementById("screen-studio");
+    const outfitScreen = document.getElementById("screen-outfit");
+    const navStudio = document.getElementById("nav-studio");
+    const navOutfit = document.getElementById("nav-outfit");
+
+    function showScreen(name) {
+      const outfit = name === "outfit";
+      studioScreen.classList.toggle("active", !outfit);
+      outfitScreen.classList.toggle("active", outfit);
+      navStudio.classList.toggle("active", !outfit);
+      navOutfit.classList.toggle("active", outfit);
+    }
+
+    function syncScreenFromHash() {
+      showScreen(location.hash === "#outfit" ? "outfit" : "studio");
+    }
+
+    window.addEventListener("hashchange", syncScreenFromHash);
+    syncScreenFromHash();
+
+    function bindPreview(input, img) {
+      input.addEventListener("change", () => {
+        const file = input.files && input.files[0];
+        if (!file) {
+          img.style.display = "none";
+          img.removeAttribute("src");
+          return;
+        }
+        img.src = URL.createObjectURL(file);
+        img.style.display = "block";
+      });
+    }
+
+    const outfitForm = document.getElementById("outfit-form");
+    const outfitBtn = document.getElementById("outfit-btn");
+    const outfitStatus = document.getElementById("outfit-status");
+    const outfitPlayer = document.getElementById("outfit-player");
+    bindPreview(document.getElementById("image-before"), document.getElementById("preview-before"));
+    bindPreview(document.getElementById("image-after"), document.getElementById("preview-after"));
+
+    const directionEl = document.getElementById("outfit-direction");
+    const walkOutEl = document.getElementById("walk-out-prompt");
+    const walkInEl = document.getElementById("walk-in-prompt");
+    const resetPromptsBtn = document.getElementById("reset-prompts");
+    let promptCatalog = {
+      default_direction: "right",
+      prompts: {
+        right: {
+          walk_out_prompt: "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, the same person from the first frame turns and walks naturally to the right, full body visible, casual gait, arms swinging, continues walking until they completely leave the frame on the right, empty studio remains, no cut, no clothes change",
+          walk_in_prompt: "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, the person enters from the right edge walking left toward the center, natural gait, then stops in the middle facing the camera, full body, same lighting, no morphing"
+        },
+        left: {
+          walk_out_prompt: "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, the same person from the first frame turns and walks naturally to the left, full body visible, casual gait, arms swinging, continues walking until they completely leave the frame on the left, empty studio remains, no cut, no clothes change",
+          walk_in_prompt: "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, the person enters from the left edge walking right toward the center, natural gait, then stops in the middle facing the camera, full body, same lighting, no morphing"
+        }
+      }
+    };
+
+    function fillPrompts(direction) {
+      const pack = promptCatalog.prompts[direction] || promptCatalog.prompts.right;
+      walkOutEl.value = pack.walk_out_prompt;
+      walkInEl.value = pack.walk_in_prompt;
+    }
+
+    fillPrompts(directionEl.value);
+    directionEl.addEventListener("change", () => fillPrompts(directionEl.value));
+    resetPromptsBtn.addEventListener("click", () => fillPrompts(directionEl.value));
+
+    fetch("/api/v1/outfit-prompts")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        if (!data || !data.prompts) return;
+        promptCatalog = data;
+        fillPrompts(directionEl.value);
+      })
+      .catch(() => {});
+
+    outfitForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      outfitBtn.disabled = true;
+      outfitPlayer.style.display = "none";
+      outfitStatus.textContent = "Đang tải 2 ảnh…";
+      const data = new FormData(outfitForm);
+      try {
+        const res = await fetch("/api/v1/jobs/outfit-change", { method: "POST", body: data });
+        const job = await res.json();
+        if (!res.ok) throw new Error(job.detail || JSON.stringify(job));
+        outfitStatus.textContent =
+          "Đã xếp hàng " + job.job_id +
+          "\nthay đồ · đi ra rồi đi vào · " + job.width + "×" + job.height +
+          "\nĐang chờ video_url…";
+        const done = await pollOutfit(job.job_id);
+        if (done.status !== "succeeded") throw new Error(done.error || done.status);
+        outfitStatus.textContent = "Xong.\nvideo_url: " + playableUrl(done.video_url);
+        outfitPlayer.src = playableUrl(done.video_url);
+        outfitPlayer.style.display = "block";
+      } catch (err) {
+        outfitStatus.textContent = "Lỗi: " + err.message;
+      } finally {
+        outfitBtn.disabled = false;
+      }
+    });
+
+    async function pollOutfit(id) {
+      while (true) {
+        const res = await fetch(`/api/v1/jobs/${id}`);
+        const job = await res.json();
+        outfitStatus.textContent =
+          "Job " + id +
+          "\ntrạng thái: " + job.status +
+          "\nthay đồ · " + job.width + "×" + job.height +
           (job.video_url ? "\nvideo_url: " + playableUrl(job.video_url) : "");
         if (job.status === "succeeded" || job.status === "failed") return job;
         await new Promise((r) => setTimeout(r, 2000));

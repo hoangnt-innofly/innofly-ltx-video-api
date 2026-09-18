@@ -13,6 +13,9 @@ class JobResponse(BaseModel):
     frame_rate: int
     seed: int
     mode: str = "i2v"
+    direction: str | None = None
+    walk_out_prompt: str | None = None
+    walk_in_prompt: str | None = None
     video_url: str | None = None
     error: str | None = None
 

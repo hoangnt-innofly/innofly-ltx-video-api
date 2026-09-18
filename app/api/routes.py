@@ -10,6 +10,7 @@ from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
 from app.core.dims import align_frames, align_resolution
+from app.core.outfit import normalize_direction, prompts_catalog
 from app.models.schemas import HealthResponse, JobResponse
 from app.services.jobs import JobService
 
@@ -57,6 +58,11 @@ def health() -> HealthResponse:
             "pipeline_config": settings.ltx_pipeline_config,
             "max_gpu_memory_gb": settings.ltx_max_gpu_memory_gb,
             "cpu_offload": settings.ltx_cpu_offload,
+            "outfit_width": settings.ltx_outfit_width,
+            "outfit_height": settings.ltx_outfit_height,
+            "outfit_num_frames": settings.ltx_outfit_num_frames,
+            "outfit_frame_rate": settings.ltx_outfit_frame_rate,
+            "outfit_direction": settings.ltx_outfit_direction,
         },
     )
 
@@ -109,6 +115,96 @@ async def create_job(
     return to_response(request, job)
 
 
+@router.get("/api/v1/outfit-prompts")
+def outfit_prompts() -> dict:
+    """Default left/right walk-out and walk-in prompts for the accordion editor."""
+    return prompts_catalog()
+
+
+@router.post("/api/v1/jobs/outfit-change", response_model=JobResponse, status_code=202)
+async def create_outfit_job(
+    request: Request,
+    image_before: Annotated[UploadFile, File()],
+    image_after: Annotated[UploadFile, File()],
+    direction: Annotated[Optional[str], Form()] = None,
+    walk_out_prompt: Annotated[Optional[str], Form()] = None,
+    walk_in_prompt: Annotated[Optional[str], Form()] = None,
+    width: Annotated[Optional[int], Form()] = None,
+    height: Annotated[Optional[int], Form()] = None,
+    num_frames: Annotated[Optional[int], Form()] = None,
+    frame_rate: Annotated[Optional[int], Form()] = None,
+    seed: Annotated[Optional[int], Form()] = None,
+) -> JobResponse:
+    """Two photos. Prompt walk-out / walk-in can be edited; empty uses the preset."""
+    before = await _save_upload(image_before)
+    after = await _save_upload(image_after)
+    try:
+        walk = normalize_direction(direction or settings.ltx_outfit_direction)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if width is not None:
+        width = align_resolution(width)
+    if height is not None:
+        height = align_resolution(height)
+    if num_frames is not None:
+        num_frames = align_frames(num_frames)
+
+    job = jobs.create_outfit_job(
+        image_before=before,
+        image_after=after,
+        direction=walk,
+        walk_out_prompt_text=walk_out_prompt,
+        walk_in_prompt_text=walk_in_prompt,
+        width=width,
+        height=height,
+        num_frames=num_frames,
+        frame_rate=frame_rate,
+        seed=seed,
+    )
+    return to_response(request, job)
+
+
+@router.post("/api/v1/outfit-change", response_model=JobResponse)
+async def generate_outfit_change(
+    request: Request,
+    image_before: Annotated[UploadFile, File()],
+    image_after: Annotated[UploadFile, File()],
+    direction: Annotated[Optional[str], Form()] = None,
+    walk_out_prompt: Annotated[Optional[str], Form()] = None,
+    walk_in_prompt: Annotated[Optional[str], Form()] = None,
+    width: Annotated[Optional[int], Form()] = None,
+    height: Annotated[Optional[int], Form()] = None,
+    num_frames: Annotated[Optional[int], Form()] = None,
+    frame_rate: Annotated[Optional[int], Form()] = None,
+    seed: Annotated[Optional[int], Form()] = None,
+    wait: Annotated[bool, Form()] = True,
+) -> JobResponse:
+    """Same as /jobs/outfit-change but waits for video_url by default."""
+    response = await create_outfit_job(
+        request,
+        image_before,
+        image_after,
+        direction,
+        walk_out_prompt,
+        walk_in_prompt,
+        width,
+        height,
+        num_frames,
+        frame_rate,
+        seed,
+    )
+    if not wait:
+        return response
+    try:
+        job = await jobs.wait(response.job_id, timeout=1800)
+    except (TimeoutError, asyncio.TimeoutError) as exc:
+        raise HTTPException(status_code=504, detail="Generation timed out") from exc
+    if job.status == "failed":
+        raise HTTPException(status_code=500, detail=job.error or "Generation failed")
+    return to_response(request, job)
+
+
 @router.get("/api/v1/jobs/{job_id}", response_model=JobResponse)
 def get_job(job_id: str, request: Request) -> JobResponse:
     job = jobs.get(job_id)
@@ -138,22 +234,7 @@ async def _enqueue(
 ):
     dest = None
     if _has_image(image):
-        suffix = Path(image.filename or "input.jpg").suffix.lower()
-        content_type = (image.content_type or "").lower()
-        if suffix not in ALLOWED_SUFFIXES and content_type not in ALLOWED_IMAGE_TYPES:
-            raise HTTPException(status_code=400, detail="Image must be jpg, png, or webp")
-
-        data = await image.read()
-        max_bytes = settings.max_upload_mb * 1024 * 1024
-        if len(data) > max_bytes:
-            raise HTTPException(
-                status_code=413,
-                detail=f"Image exceeds {settings.max_upload_mb} MB",
-            )
-        if not data:
-            raise HTTPException(status_code=400, detail="Empty image upload")
-        dest = settings.upload_dir / f"{uuid4().hex}{suffix or '.jpg'}"
-        dest.write_bytes(data)
+        dest = await _save_upload(image)
 
     if width is not None:
         width = align_resolution(width)
@@ -173,6 +254,28 @@ async def _enqueue(
         negative_prompt=negative_prompt,
         image_cond_noise_scale=image_cond_noise_scale,
     )
+
+
+async def _save_upload(image: UploadFile) -> Path:
+    if not _has_image(image):
+        raise HTTPException(status_code=400, detail="Image upload is required")
+    suffix = Path(image.filename or "input.jpg").suffix.lower()
+    content_type = (image.content_type or "").lower()
+    if suffix not in ALLOWED_SUFFIXES and content_type not in ALLOWED_IMAGE_TYPES:
+        raise HTTPException(status_code=400, detail="Image must be jpg, png, or webp")
+
+    data = await image.read()
+    max_bytes = settings.max_upload_mb * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Image exceeds {settings.max_upload_mb} MB",
+        )
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty image upload")
+    dest = settings.upload_dir / f"{uuid4().hex}{suffix or '.jpg'}"
+    dest.write_bytes(data)
+    return dest
 
 
 def _has_image(image: UploadFile | None) -> TypeGuard[UploadFile]:

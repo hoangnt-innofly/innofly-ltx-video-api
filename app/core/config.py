@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     )
     ltx_default_image_cond_noise_scale: float = 0.15
 
+    # Portrait-friendly defaults for the two-image outfit-change screen.
+    ltx_outfit_width: int = 320
+    ltx_outfit_height: int = 512
+    ltx_outfit_num_frames: int = 49
+    ltx_outfit_frame_rate: int = 16
+    ltx_outfit_image_cond_noise_scale: float = 0.22
+    ltx_outfit_direction: str = "right"
+
     max_upload_mb: int = 20
     job_ttl_seconds: int = 86400
     # 0 = no artificial cap. Do not set 10/11 on an 11.6GiB card.

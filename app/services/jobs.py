@@ -11,7 +11,17 @@ from typing import Literal
 
 from app.core.config import Settings
 from app.core.dims import align_frames, align_resolution
-from app.services.mock_engine import generate_placeholder_video
+from app.core.outfit import (
+    NEGATIVE_EXTRA,
+    empty_studio_frame,
+    normalize_direction,
+    prepare_enter_frame,
+    resolve_prompt,
+    walk_in_prompt,
+    walk_out_prompt,
+)
+from app.services.mock_engine import generate_outfit_placeholder, generate_placeholder_video
+from app.services.video_ops import concat_videos
 
 logger = logging.getLogger("ltx-api")
 
@@ -31,6 +41,11 @@ class Job:
     seed: int
     negative_prompt: str
     image_cond_noise_scale: float = 0.15
+    image2_path: Path | None = None
+    mode: str = "i2v"
+    direction: str | None = None
+    walk_out_prompt: str | None = None
+    walk_in_prompt: str | None = None
     status: JobStatus = "queued"
     error: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -41,6 +56,12 @@ class Job:
         video_url = None
         if self.status == "succeeded":
             video_url = f"{base_url.rstrip('/')}/media/videos/{self.video_path.name}"
+        if self.mode == "outfit_change":
+            mode = "outfit_change"
+        elif self.image_path is not None:
+            mode = "i2v"
+        else:
+            mode = "t2v"
         return {
             "job_id": self.id,
             "status": self.status,
@@ -50,7 +71,10 @@ class Job:
             "num_frames": self.num_frames,
             "frame_rate": self.frame_rate,
             "seed": self.seed,
-            "mode": "i2v" if self.image_path is not None else "t2v",
+            "mode": mode,
+            "direction": self.direction,
+            "walk_out_prompt": self.walk_out_prompt,
+            "walk_in_prompt": self.walk_in_prompt,
             "video_url": video_url,
             "error": self.error,
         }
@@ -110,6 +134,51 @@ class JobService:
                 if image_cond_noise_scale is not None
                 else self.settings.ltx_default_image_cond_noise_scale
             ),
+            mode="i2v" if image_path is not None else "t2v",
+        )
+        self.jobs[job_id] = job
+        self._queue.put_nowait(job_id)
+        return job
+
+    def create_outfit_job(
+        self,
+        *,
+        image_before: Path,
+        image_after: Path,
+        direction: str | None = None,
+        walk_out_prompt_text: str | None = None,
+        walk_in_prompt_text: str | None = None,
+        width: int | None = None,
+        height: int | None = None,
+        num_frames: int | None = None,
+        frame_rate: int | None = None,
+        seed: int | None = None,
+    ) -> Job:
+        job_id = uuid.uuid4().hex
+        walk = normalize_direction(direction or self.settings.ltx_outfit_direction)
+        out_prompt = resolve_prompt(walk_out_prompt_text, walk_out_prompt(walk))
+        in_prompt = resolve_prompt(walk_in_prompt_text, walk_in_prompt(walk))
+        width = align_resolution(width or self.settings.ltx_outfit_width)
+        height = align_resolution(height or self.settings.ltx_outfit_height)
+        num_frames = align_frames(num_frames or self.settings.ltx_outfit_num_frames)
+        negative = f"{self.settings.ltx_negative_prompt}, {NEGATIVE_EXTRA}"
+        job = Job(
+            id=job_id,
+            prompt=out_prompt,
+            image_path=image_before,
+            image2_path=image_after,
+            video_path=self.settings.video_dir / f"{job_id}.mp4",
+            width=width,
+            height=height,
+            num_frames=num_frames,
+            frame_rate=frame_rate or self.settings.ltx_outfit_frame_rate,
+            seed=seed if seed is not None else self.settings.ltx_default_seed,
+            negative_prompt=negative,
+            image_cond_noise_scale=self.settings.ltx_outfit_image_cond_noise_scale,
+            mode="outfit_change",
+            direction=walk,
+            walk_out_prompt=out_prompt,
+            walk_in_prompt=in_prompt,
         )
         self.jobs[job_id] = job
         self._queue.put_nowait(job_id)
@@ -170,6 +239,10 @@ class JobService:
                 self._queue.task_done()
 
     def _run_job(self, job: Job) -> None:
+        if job.mode == "outfit_change":
+            self._run_outfit_job(job)
+            return
+
         if self.settings.ltx_mock:
             generate_placeholder_video(
                 job.image_path,
@@ -193,6 +266,68 @@ class JobService:
             negative_prompt=job.negative_prompt,
             image_path=job.image_path,
             image_cond_noise_scale=job.image_cond_noise_scale,
+        )
+
+    def _run_outfit_job(self, job: Job) -> None:
+        if job.image_path is None or job.image2_path is None:
+            raise ValueError("Outfit change needs both images")
+        direction = normalize_direction(job.direction)
+
+        if self.settings.ltx_mock:
+            generate_outfit_placeholder(
+                job.image_path,
+                job.image2_path,
+                job.video_path,
+                width=job.width,
+                height=job.height,
+                num_frames=job.num_frames,
+                frame_rate=job.frame_rate,
+                direction=direction,
+            )
+            return
+
+        enter_path = self.settings.upload_dir / f"{job.id}_enter.jpg"
+        prepare_enter_frame(
+            job.image2_path,
+            enter_path,
+            direction=direction,
+            width=job.width,
+            height=job.height,
+        )
+        clip_out = self.settings.video_dir / f"{job.id}_out.mp4"
+        clip_in = self.settings.video_dir / f"{job.id}_in.mp4"
+        engine = self._get_engine()
+        engine.generate(
+            prompt=job.walk_out_prompt or walk_out_prompt(direction),
+            output_path=clip_out,
+            height=job.height,
+            width=job.width,
+            num_frames=job.num_frames,
+            frame_rate=job.frame_rate,
+            seed=job.seed,
+            negative_prompt=job.negative_prompt,
+            image_path=job.image_path,
+            image_cond_noise_scale=job.image_cond_noise_scale,
+        )
+        engine.generate(
+            prompt=job.walk_in_prompt or walk_in_prompt(direction),
+            output_path=clip_in,
+            height=job.height,
+            width=job.width,
+            num_frames=job.num_frames,
+            frame_rate=job.frame_rate,
+            seed=job.seed + 1,
+            negative_prompt=job.negative_prompt,
+            image_path=enter_path,
+            image_cond_noise_scale=job.image_cond_noise_scale,
+        )
+        hold = max(6, job.frame_rate // 3)
+        concat_videos(
+            [clip_out, clip_in],
+            job.video_path,
+            frame_rate=job.frame_rate,
+            interlude=empty_studio_frame(job.image_path, job.width, job.height),
+            interlude_frames=hold,
         )
 
     def _get_engine(self):
