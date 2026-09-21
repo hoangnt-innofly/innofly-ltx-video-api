@@ -315,24 +315,26 @@
       e.preventDefault();
       btn.disabled = true;
       player.style.display = "none";
-      statusEl.textContent = hasImage() ? "Đang tải ảnh…" : "Đang xếp hàng text-to-video…";
+      statusEl.textContent = hasImage()
+        ? "Đang tạo image-to-video… (chờ video trong cùng một request)"
+        : "Đang tạo text-to-video… (chờ video trong cùng một request)";
       const data = new FormData(form);
       if (!hasImage()) data.delete("image");
       try {
-        const res = await fetch("/api/v1/jobs", { method: "POST", body: data });
+        const res = await fetch("/api/v1/generate", { method: "POST", body: data });
         const job = await res.json();
         if (!res.ok) throw new Error(job.detail || JSON.stringify(job));
+        if (job.status !== "succeeded" || !job.video_url) {
+          throw new Error(job.error || job.status || "Không có video_url");
+        }
         const seconds = job.frame_rate ? (job.num_frames / job.frame_rate) : null;
         const modeLabel = job.mode === "t2v" ? "text-to-video" : "image-to-video";
         statusEl.textContent =
-          "Đã xếp hàng " + job.job_id +
-          "\n" + modeLabel + " · " + job.width + "×" + job.height + " · " + job.num_frames + " khung @ " + job.frame_rate + " fps" +
+          "Xong.\n" + modeLabel + " · " + job.width + "×" + job.height +
+          " · " + job.num_frames + " khung @ " + job.frame_rate + " fps" +
           (seconds ? " · " + formatDuration(seconds) : "") +
-          "\nĐang chờ video_url…";
-        const done = await poll(job.job_id);
-        if (done.status !== "succeeded") throw new Error(done.error || done.status);
-        statusEl.textContent = "Xong.\nvideo_url: " + playableUrl(done.video_url);
-        player.src = playableUrl(done.video_url);
+          "\nvideo_url: " + playableUrl(job.video_url);
+        player.src = playableUrl(job.video_url);
         player.style.display = "block";
       } catch (err) {
         statusEl.textContent = "Lỗi: " + err.message;
@@ -340,21 +342,6 @@
         btn.disabled = false;
       }
     });
-
-    async function poll(id) {
-      while (true) {
-        const res = await fetch(`/api/v1/jobs/${id}`);
-        const job = await res.json();
-        const seconds = job.frame_rate ? (job.num_frames / job.frame_rate) : null;
-        const modeLabel = job.mode === "t2v" ? "text-to-video" : "image-to-video";
-        statusEl.textContent =
-          "Job " + id + "\ntrạng thái: " + job.status +
-          (job.frame_rate ? "\n" + modeLabel + " · " + job.width + "×" + job.height + " · " + job.num_frames + " khung @ " + job.frame_rate + " fps" + (seconds ? " · " + formatDuration(seconds) : "") : "") +
-          (job.video_url ? "\nvideo_url: " + playableUrl(job.video_url) : "");
-        if (job.status === "succeeded" || job.status === "failed") return job;
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-    }
 
     const studioScreen = document.getElementById("screen-studio");
     const outfitScreen = document.getElementById("screen-outfit");
@@ -463,21 +450,20 @@
       e.preventDefault();
       outfitBtn.disabled = true;
       outfitPlayer.style.display = "none";
-      outfitStatus.textContent = "Đang tải 2 ảnh…";
+      outfitStatus.textContent = "Đang tạo video thay đồ… (chờ video trong cùng một request)";
       const data = new FormData(outfitForm);
       try {
-        const res = await fetch("/api/v1/jobs/outfit-change", { method: "POST", body: data });
+        const res = await fetch("/api/v1/outfit-change", { method: "POST", body: data });
         const job = await res.json();
         if (!res.ok) throw new Error(job.detail || JSON.stringify(job));
+        if (job.status !== "succeeded" || !job.video_url) {
+          throw new Error(job.error || job.status || "Không có video_url");
+        }
         outfitStatus.textContent =
-          "Đã xếp hàng " + job.job_id +
-          "\nthay đồ · đi ra rồi đi vào · " + job.width + "×" + job.height +
+          "Xong.\nthay đồ · " + job.width + "×" + job.height +
           " · " + job.num_frames + " khung/clip @ " + job.frame_rate + " fps" +
-          "\nĐang chờ video_url…";
-        const done = await pollOutfit(job.job_id);
-        if (done.status !== "succeeded") throw new Error(done.error || done.status);
-        outfitStatus.textContent = "Xong.\nvideo_url: " + playableUrl(done.video_url);
-        outfitPlayer.src = playableUrl(done.video_url);
+          "\nvideo_url: " + playableUrl(job.video_url);
+        outfitPlayer.src = playableUrl(job.video_url);
         outfitPlayer.style.display = "block";
       } catch (err) {
         outfitStatus.textContent = "Lỗi: " + err.message;
@@ -485,21 +471,6 @@
         outfitBtn.disabled = false;
       }
     });
-
-    async function pollOutfit(id) {
-      while (true) {
-        const res = await fetch(`/api/v1/jobs/${id}`);
-        const job = await res.json();
-        outfitStatus.textContent =
-          "Job " + id +
-          "\ntrạng thái: " + job.status +
-          "\nthay đồ · " + job.width + "×" + job.height +
-          " · " + job.num_frames + " khung/clip @ " + job.frame_rate + " fps" +
-          (job.video_url ? "\nvideo_url: " + playableUrl(job.video_url) : "");
-        if (job.status === "succeeded" || job.status === "failed") return job;
-        await new Promise((r) => setTimeout(r, 2000));
-      }
-    }
   </script>
 </body>
 </html>

@@ -2,7 +2,7 @@
 
 FastAPI demo backend for local **Image-to-Video** with [Lightricks/LTX-Video](https://github.com/Lightricks/LTX-Video) **`ltxv-2b-0.9.8-distilled`** (RTX 3060 12GB).
 
-Upload an image + text prompt. Submit returns a `video_url`.
+Upload an image + text prompt. One request waits and returns a `video_url`.
 
 ## Defaults (3060 12GB)
 
@@ -20,9 +20,10 @@ Upload an image + text prompt. Submit returns a `video_url`.
 
 | Method | Path | What it does |
 | --- | --- | --- |
-| `POST` | `/api/v1/generate` | Upload image + prompt, **wait**, return `video_url` |
-| `POST` | `/api/v1/jobs` | Same upload, return immediately (`202`) |
-| `GET` | `/api/v1/jobs/{job_id}` | Poll until `status=succeeded` and `video_url` is set |
+| `POST` | `/api/v1/generate` | Upload image + prompt, wait, return `video_url` |
+| `POST` | `/api/v1/jobs` | Same as `/generate` (waits for MP4) |
+| `POST` | `/api/v1/outfit-change` | Two photos, wait, return `video_url` |
+| `GET` | `/api/v1/jobs/{job_id}` | Optional lookup of a finished job |
 | `GET` | `/media/videos/{file}` | Stream the mp4 |
 | `GET` | `/health` | CUDA / mock / defaults |
 | `GET` | `/docs` | Swagger |

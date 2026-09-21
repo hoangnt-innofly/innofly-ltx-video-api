@@ -38,6 +38,16 @@ def to_response(request: Request, job) -> JobResponse:
     return JobResponse.model_validate(job.to_public(public_base(request)))
 
 
+async def _await_job(job, timeout: float, fail_message: str = "Generation timed out"):
+    try:
+        job = await jobs.wait(job.id, timeout=timeout)
+    except (TimeoutError, asyncio.TimeoutError) as exc:
+        raise HTTPException(status_code=504, detail=fail_message) from exc
+    if job.status == "failed":
+        raise HTTPException(status_code=500, detail=job.error or "Generation failed")
+    return job
+
+
 @router.get("/health", response_model=HealthResponse)
 def health() -> HealthResponse:
     cuda_available, device_name = jobs.cuda_info()
@@ -82,21 +92,16 @@ async def generate(
     image_cond_noise_scale: Annotated[Optional[float], Form()] = None,
     wait: Annotated[bool, Form()] = True,
 ) -> JobResponse:
-    """Text-to-video, or image + prompt for image-to-video. Waits for video_url by default."""
+    """Text-to-video, or image + prompt for image-to-video. Waits and returns video_url."""
     job = await _enqueue(
         image, prompt, width, height, num_frames, frame_rate, seed, negative_prompt, image_cond_noise_scale
     )
     if wait:
-        try:
-            job = await jobs.wait(job.id, timeout=1200)
-        except (TimeoutError, asyncio.TimeoutError) as exc:
-            raise HTTPException(status_code=504, detail="Generation timed out") from exc
-        if job.status == "failed":
-            raise HTTPException(status_code=500, detail=job.error or "Generation failed")
+        job = await _await_job(job, timeout=1200)
     return to_response(request, job)
 
 
-@router.post("/api/v1/jobs", response_model=JobResponse, status_code=202)
+@router.post("/api/v1/jobs", response_model=JobResponse)
 async def create_job(
     request: Request,
     prompt: Annotated[str, Form(min_length=1)],
@@ -109,10 +114,11 @@ async def create_job(
     negative_prompt: Annotated[Optional[str], Form()] = None,
     image_cond_noise_scale: Annotated[Optional[float], Form()] = None,
 ) -> JobResponse:
-    """Queue a job and return immediately. Poll GET /api/v1/jobs/{job_id} for video_url."""
+    """Same as /generate: wait until MP4 is ready, then return video_url."""
     job = await _enqueue(
         image, prompt, width, height, num_frames, frame_rate, seed, negative_prompt, image_cond_noise_scale
     )
+    job = await _await_job(job, timeout=1200)
     return to_response(request, job)
 
 
@@ -122,7 +128,7 @@ def outfit_prompts() -> dict:
     return prompts_catalog()
 
 
-@router.post("/api/v1/jobs/outfit-change", response_model=JobResponse, status_code=202)
+@router.post("/api/v1/jobs/outfit-change", response_model=JobResponse)
 async def create_outfit_job(
     request: Request,
     image_before: Annotated[UploadFile, File()],
@@ -137,34 +143,21 @@ async def create_outfit_job(
     seed: Annotated[Optional[int], Form()] = None,
     image_cond_noise_scale: Annotated[Optional[float], Form()] = None,
 ) -> JobResponse:
-    """Two photos. Prompt walk-out / walk-in can be edited; empty uses the preset."""
-    before = await _save_upload(image_before)
-    after = await _save_upload(image_after)
-    try:
-        walk = normalize_direction(direction or settings.ltx_outfit_direction)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    if width is not None:
-        width = align_resolution(width)
-    if height is not None:
-        height = align_resolution(height)
-    if num_frames is not None:
-        num_frames = align_frames(num_frames)
-
-    job = jobs.create_outfit_job(
-        image_before=before,
-        image_after=after,
-        direction=walk,
-        walk_out_prompt_text=walk_out_prompt,
-        walk_in_prompt_text=walk_in_prompt,
-        width=width,
-        height=height,
-        num_frames=num_frames,
-        frame_rate=frame_rate,
-        seed=seed,
-        image_cond_noise_scale=image_cond_noise_scale,
+    """Two photos. Waits until MP4 is ready, then returns video_url."""
+    job = await _enqueue_outfit(
+        image_before,
+        image_after,
+        direction,
+        walk_out_prompt,
+        walk_in_prompt,
+        width,
+        height,
+        num_frames,
+        frame_rate,
+        seed,
+        image_cond_noise_scale,
     )
+    job = await _await_job(job, timeout=1800)
     return to_response(request, job)
 
 
@@ -184,9 +177,8 @@ async def generate_outfit_change(
     image_cond_noise_scale: Annotated[Optional[float], Form()] = None,
     wait: Annotated[bool, Form()] = True,
 ) -> JobResponse:
-    """Same as /jobs/outfit-change but waits for video_url by default."""
-    response = await create_outfit_job(
-        request,
+    """Same as /jobs/outfit-change: waits and returns video_url by default."""
+    job = await _enqueue_outfit(
         image_before,
         image_after,
         direction,
@@ -199,14 +191,8 @@ async def generate_outfit_change(
         seed,
         image_cond_noise_scale,
     )
-    if not wait:
-        return response
-    try:
-        job = await jobs.wait(response.job_id, timeout=1800)
-    except (TimeoutError, asyncio.TimeoutError) as exc:
-        raise HTTPException(status_code=504, detail="Generation timed out") from exc
-    if job.status == "failed":
-        raise HTTPException(status_code=500, detail=job.error or "Generation failed")
+    if wait:
+        job = await _await_job(job, timeout=1800)
     return to_response(request, job)
 
 
@@ -224,6 +210,48 @@ def get_video(filename: str):
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Video not found")
     return FileResponse(path, media_type="video/mp4", filename=path.name)
+
+
+async def _enqueue_outfit(
+    image_before: UploadFile,
+    image_after: UploadFile,
+    direction: str | None,
+    walk_out_prompt: str | None,
+    walk_in_prompt: str | None,
+    width: int | None,
+    height: int | None,
+    num_frames: int | None,
+    frame_rate: int | None,
+    seed: int | None,
+    image_cond_noise_scale: float | None,
+):
+    before = await _save_upload(image_before)
+    after = await _save_upload(image_after)
+    try:
+        walk = normalize_direction(direction or settings.ltx_outfit_direction)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if width is not None:
+        width = align_resolution(width)
+    if height is not None:
+        height = align_resolution(height)
+    if num_frames is not None:
+        num_frames = align_frames(num_frames)
+
+    return jobs.create_outfit_job(
+        image_before=before,
+        image_after=after,
+        direction=walk,
+        walk_out_prompt_text=walk_out_prompt,
+        walk_in_prompt_text=walk_in_prompt,
+        width=width,
+        height=height,
+        num_frames=num_frames,
+        frame_rate=frame_rate,
+        seed=seed,
+        image_cond_noise_scale=image_cond_noise_scale,
+    )
 
 
 async def _enqueue(
