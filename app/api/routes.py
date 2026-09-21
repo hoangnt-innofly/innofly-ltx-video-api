@@ -63,6 +63,7 @@ def health() -> HealthResponse:
             "outfit_num_frames": settings.ltx_outfit_num_frames,
             "outfit_frame_rate": settings.ltx_outfit_frame_rate,
             "outfit_direction": settings.ltx_outfit_direction,
+            "outfit_image_cond_noise_scale": settings.ltx_outfit_image_cond_noise_scale,
         },
     )
 
@@ -134,6 +135,7 @@ async def create_outfit_job(
     num_frames: Annotated[Optional[int], Form()] = None,
     frame_rate: Annotated[Optional[int], Form()] = None,
     seed: Annotated[Optional[int], Form()] = None,
+    image_cond_noise_scale: Annotated[Optional[float], Form()] = None,
 ) -> JobResponse:
     """Two photos. Prompt walk-out / walk-in can be edited; empty uses the preset."""
     before = await _save_upload(image_before)
@@ -161,6 +163,7 @@ async def create_outfit_job(
         num_frames=num_frames,
         frame_rate=frame_rate,
         seed=seed,
+        image_cond_noise_scale=image_cond_noise_scale,
     )
     return to_response(request, job)
 
@@ -178,6 +181,7 @@ async def generate_outfit_change(
     num_frames: Annotated[Optional[int], Form()] = None,
     frame_rate: Annotated[Optional[int], Form()] = None,
     seed: Annotated[Optional[int], Form()] = None,
+    image_cond_noise_scale: Annotated[Optional[float], Form()] = None,
     wait: Annotated[bool, Form()] = True,
 ) -> JobResponse:
     """Same as /jobs/outfit-change but waits for video_url by default."""
@@ -193,6 +197,7 @@ async def generate_outfit_change(
         num_frames,
         frame_rate,
         seed,
+        image_cond_noise_scale,
     )
     if not wait:
         return response

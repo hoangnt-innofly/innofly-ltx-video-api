@@ -13,7 +13,7 @@
     p.sub { color: var(--muted); margin: 0 0 24px; }
     form, .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px; }
     label { display: block; font-size: 0.85rem; color: var(--muted); margin: 14px 0 6px; }
-    input, textarea { width: 100%; background: #101318; color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+    input, textarea, select { width: 100%; background: #101318; color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
     textarea { min-height: 90px; resize: vertical; }
     .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
     .row-2 { grid-template-columns: 1fr 1fr; }
@@ -186,7 +186,45 @@
             <img id="preview-after" alt="Xem ảnh 2" />
           </div>
         </div>
-        <p class="hint" style="margin-top:14px">Mặc định: đi sang phải ra khỏi màn hình → khoảng trống → đi vào lại với đồ mới. Portrait 320×512, RTX 12GB.</p>
+        <p class="hint" style="margin-top:14px">Mặc định: đi sang phải ra khỏi màn hình → khoảng trống → đi vào lại với đồ mới. RTX 12GB nên giữ 256×384 × 25 khung.</p>
+        <details class="accordion" open>
+          <summary>Thông số · frames, kích thước (tránh OOM)</summary>
+          <div class="row">
+            <div>
+              <label>Chiều rộng</label>
+              <input type="number" name="width" id="outfit-width" value="256" step="32" min="32" />
+              <p class="hint">Bội số 32. RTX 12GB nên 256.</p>
+              <p class="warn">Lớn hơn dễ OOM vì gen 2 clip.</p>
+            </div>
+            <div>
+              <label>Chiều cao</label>
+              <input type="number" name="height" id="outfit-height" value="384" step="32" min="32" />
+              <p class="hint">Portrait. RTX 12GB nên 384.</p>
+              <p class="warn">512+ dễ OOM.</p>
+            </div>
+            <div>
+              <label>Số khung / clip (8n+1)</label>
+              <input type="number" name="num_frames" id="outfit-num-frames" value="25" min="9" step="1" />
+              <p class="hint">Hợp lệ: 17, 25, 33, 41, 49…</p>
+              <p class="warn">Mỗi clip một lần gen. 25 an toàn hơn 49.</p>
+            </div>
+          </div>
+          <div class="row row-2">
+            <div>
+              <label>Tốc độ khung (fps)</label>
+              <input type="number" name="frame_rate" id="outfit-frame-rate" value="8" min="8" max="30" />
+              <p class="hint">Không tốn VRAM, chỉ đổi độ dài.</p>
+            </div>
+            <div>
+              <label>Seed</label>
+              <input type="number" name="seed" id="outfit-seed" value="42" />
+            </div>
+          </div>
+          <label>Nhiễu bám ảnh (0–0.5)</label>
+          <input type="number" name="image_cond_noise_scale" id="outfit-noise" value="0.22" min="0" max="0.5" step="0.05" />
+          <p class="hint">Cao hơn thì đi được xa hơn, dễ méo mặt. OOM không liên quan field này.</p>
+          <div class="duration" id="outfit-duration">Độ dài video: —</div>
+        </details>
         <details class="accordion">
           <summary>Prompt trái / phải · xem và sửa</summary>
           <label>Hướng đi</label>
@@ -395,6 +433,47 @@
       })
       .catch(() => {});
 
+    const outfitFramesInput = document.getElementById("outfit-num-frames");
+    const outfitFpsInput = document.getElementById("outfit-frame-rate");
+    const outfitDurationEl = document.getElementById("outfit-duration");
+
+    function updateOutfitDuration() {
+      const frames = alignFrames(outfitFramesInput.value);
+      const fps = Number(outfitFpsInput.value);
+      if (!fps || fps <= 0) {
+        outfitDurationEl.innerHTML = "Độ dài video: <strong>—</strong> (cần tốc độ khung &gt; 0)";
+        return;
+      }
+      const hold = Math.max(6, Math.floor(fps / 3));
+      const seconds = (frames * 2 + hold) / fps;
+      const typed = Number(outfitFramesInput.value);
+      const alignedNote = Number.isFinite(typed) && typed !== frames
+        ? " → mỗi clip dùng " + frames + " vì LTX cần 8n+1"
+        : "";
+      outfitDurationEl.innerHTML =
+        "Độ dài video: <strong>" + formatDuration(seconds) + "</strong>" +
+        " <span class='hint' style='display:inline'>(2 clip × " + frames + " khung + " + hold + " khung nghỉ ÷ " + fps + " fps" + alignedNote + ")</span>";
+    }
+
+    outfitFramesInput.addEventListener("input", updateOutfitDuration);
+    outfitFpsInput.addEventListener("input", updateOutfitDuration);
+    updateOutfitDuration();
+
+    fetch("/health")
+      .then((res) => res.ok ? res.json() : null)
+      .then((data) => {
+        const d = data && data.defaults;
+        if (!d) return;
+        if (d.outfit_width) document.getElementById("outfit-width").value = d.outfit_width;
+        if (d.outfit_height) document.getElementById("outfit-height").value = d.outfit_height;
+        if (d.outfit_num_frames) outfitFramesInput.value = d.outfit_num_frames;
+        if (d.outfit_frame_rate) outfitFpsInput.value = d.outfit_frame_rate;
+        if (d.outfit_image_cond_noise_scale != null) document.getElementById("outfit-noise").value = d.outfit_image_cond_noise_scale;
+        if (d.seed != null) document.getElementById("outfit-seed").value = d.seed;
+        updateOutfitDuration();
+      })
+      .catch(() => {});
+
     outfitForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       outfitBtn.disabled = true;
@@ -408,6 +487,7 @@
         outfitStatus.textContent =
           "Đã xếp hàng " + job.job_id +
           "\nthay đồ · đi ra rồi đi vào · " + job.width + "×" + job.height +
+          " · " + job.num_frames + " khung/clip @ " + job.frame_rate + " fps" +
           "\nĐang chờ video_url…";
         const done = await pollOutfit(job.job_id);
         if (done.status !== "succeeded") throw new Error(done.error || done.status);
@@ -429,6 +509,7 @@
           "Job " + id +
           "\ntrạng thái: " + job.status +
           "\nthay đồ · " + job.width + "×" + job.height +
+          " · " + job.num_frames + " khung/clip @ " + job.frame_rate + " fps" +
           (job.video_url ? "\nvideo_url: " + playableUrl(job.video_url) : "");
         if (job.status === "succeeded" || job.status === "failed") return job;
         await new Promise((r) => setTimeout(r, 2000));

@@ -153,6 +153,7 @@ class JobService:
         num_frames: int | None = None,
         frame_rate: int | None = None,
         seed: int | None = None,
+        image_cond_noise_scale: float | None = None,
     ) -> Job:
         job_id = uuid.uuid4().hex
         walk = normalize_direction(direction or self.settings.ltx_outfit_direction)
@@ -174,7 +175,11 @@ class JobService:
             frame_rate=frame_rate or self.settings.ltx_outfit_frame_rate,
             seed=seed if seed is not None else self.settings.ltx_default_seed,
             negative_prompt=negative,
-            image_cond_noise_scale=self.settings.ltx_outfit_image_cond_noise_scale,
+            image_cond_noise_scale=(
+                image_cond_noise_scale
+                if image_cond_noise_scale is not None
+                else self.settings.ltx_outfit_image_cond_noise_scale
+            ),
             mode="outfit_change",
             direction=walk,
             walk_out_prompt=out_prompt,
