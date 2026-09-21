@@ -221,7 +221,7 @@
             </div>
           </div>
           <label>Nhiễu bám ảnh (0–0.5)</label>
-          <input type="number" name="image_cond_noise_scale" id="outfit-noise" value="0.15" min="0" max="0.5" step="0.05" />
+          <input type="number" name="image_cond_noise_scale" id="outfit-noise" value="0.15" min="0" max="0.5" step="0.01" />
           <p class="hint">Cao hơn thì đi được xa hơn, dễ méo mặt. OOM không liên quan field này.</p>
           <div class="duration" id="outfit-duration">Độ dài video: —</div>
         </details>
@@ -458,21 +458,6 @@
     outfitFramesInput.addEventListener("input", updateOutfitDuration);
     outfitFpsInput.addEventListener("input", updateOutfitDuration);
     updateOutfitDuration();
-
-    fetch("/health")
-      .then((res) => res.ok ? res.json() : null)
-      .then((data) => {
-        const d = data && data.defaults;
-        if (!d) return;
-        if (d.outfit_width) document.getElementById("outfit-width").value = d.outfit_width;
-        if (d.outfit_height) document.getElementById("outfit-height").value = d.outfit_height;
-        if (d.outfit_num_frames) outfitFramesInput.value = d.outfit_num_frames;
-        if (d.outfit_frame_rate) outfitFpsInput.value = d.outfit_frame_rate;
-        if (d.outfit_image_cond_noise_scale != null) document.getElementById("outfit-noise").value = d.outfit_image_cond_noise_scale;
-        if (d.seed != null) document.getElementById("outfit-seed").value = d.seed;
-        updateOutfitDuration();
-      })
-      .catch(() => {});
 
     outfitForm.addEventListener("submit", async (e) => {
       e.preventDefault();

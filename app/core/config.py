@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     ltx_outfit_height: int = 256
     ltx_outfit_num_frames: int = 17
     ltx_outfit_frame_rate: int = 8
-    ltx_outfit_image_cond_noise_scale: float = 0.22
+    ltx_outfit_image_cond_noise_scale: float = 0.15
     ltx_outfit_direction: str = "right"
 
     max_upload_mb: int = 20
