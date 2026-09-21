@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     # 0 = no artificial cap. Do not set 10/11 on an 11.6GiB card.
     ltx_max_gpu_memory_gb: float = 0.0
     ltx_cpu_offload: bool = True
+    ltx_free_vram: bool = True
 
     @property
     def pipeline_config_path(self) -> Path:

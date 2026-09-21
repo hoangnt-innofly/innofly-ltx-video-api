@@ -24,6 +24,7 @@ Upload an image + text prompt. One request waits and returns a `video_url`.
 | `POST` | `/api/v1/jobs` | Same as `/generate` (waits for MP4) |
 | `POST` | `/api/v1/outfit-change` | Two photos, wait, return `video_url` |
 | `GET` | `/api/v1/jobs/{job_id}` | Optional lookup of a finished job |
+| `POST` | `/api/v1/free-memory` | Park weights off GPU (same idea as Comfy `free_memory`) |
 | `GET` | `/media/videos/{file}` | Stream the mp4 |
 | `GET` | `/health` | CUDA / mock / defaults |
 | `GET` | `/docs` | Swagger |
@@ -56,7 +57,7 @@ curl.exe -X POST "http://127.0.0.1:8000/api/v1/generate" `
 }
 ```
 
-Jobs are serialized on one GPU worker so concurrent requests do not OOM the 3060.
+Jobs are serialized on one GPU worker so concurrent requests do not OOM the 3060. With `LTX_FREE_VRAM=1` (default) the pipeline is unloaded after each job so TTS/MADLAD can use the same 12GB card.
 
 ## Setup (Windows + Python 3.11)
 

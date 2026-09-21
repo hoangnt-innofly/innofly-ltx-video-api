@@ -74,8 +74,15 @@ def health() -> HealthResponse:
             "outfit_frame_rate": settings.ltx_outfit_frame_rate,
             "outfit_direction": settings.ltx_outfit_direction,
             "outfit_image_cond_noise_scale": settings.ltx_outfit_image_cond_noise_scale,
+            "free_vram": settings.ltx_free_vram,
         },
     )
+
+
+@router.post("/api/v1/free-memory")
+def free_memory() -> dict:
+    """Release LTX VRAM after use so other 12GB-card apps (TTS, MADLAD, Comfy) can run."""
+    return jobs.free_vram()
 
 
 @router.post("/api/v1/generate", response_model=JobResponse)

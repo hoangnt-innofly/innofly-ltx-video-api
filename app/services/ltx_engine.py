@@ -38,10 +38,12 @@ class LTXEngine:
         pipeline_config_path: Path,
         max_gpu_memory_gb: float = 0.0,
         cpu_offload: bool = True,
+        free_vram: bool = True,
     ) -> None:
         self.pipeline_config_path = Path(pipeline_config_path)
         self.max_gpu_memory_gb = max_gpu_memory_gb
         self.cpu_offload = cpu_offload and torch.cuda.is_available()
+        self.free_vram = free_vram and torch.cuda.is_available()
         self.raw_pipeline_config: dict[str, Any] = load_pipeline_config(
             str(self.pipeline_config_path)
         )
@@ -121,9 +123,10 @@ class LTXEngine:
         self._skip_layer_strategy = self._stg_strategy(stg_mode)
         self._ready = True
         logger.info(
-            "LTX-Video pipeline ready on %s (cpu_offload=%s)%s",
+            "LTX-Video pipeline ready on %s (cpu_offload=%s, free_vram=%s)%s",
             self.device,
             self.cpu_offload,
+            self.free_vram,
             f" {self._vram_log()}" if torch.cuda.is_available() else "",
         )
 
@@ -297,6 +300,16 @@ class LTXEngine:
         self._rest_on_cpu()
         self._free_cuda()
         logger.info("Low-VRAM rest: %s", self._vram_log() or "cpu")
+
+    def release_vram(self) -> None:
+        """Drop the GPU pipeline so TTS/MT/Comfy can use the 12GB card (reload on next job)."""
+        self._rest_on_cpu()
+        self.pipeline = None
+        self._skip_layer_strategy = None
+        self._ready = False
+        self._accelerate_offload = False
+        self._free_cuda()
+        logger.info("Unloaded LTX from GPU (%s)", self._vram_log() or "cpu")
 
     def _inner_pipeline(self):
         pipe = self.pipeline

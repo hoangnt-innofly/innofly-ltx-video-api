@@ -202,6 +202,15 @@ class JobService:
             return True
         return bool(self._engine and getattr(self._engine, "ready", False))
 
+    def free_vram(self) -> dict:
+        """Drop LTX weights off GPU so TTS/MT/Comfy can use the 12GB card."""
+        with self._engine_lock:
+            if self._engine is not None:
+                self._engine.release_vram()
+            else:
+                self._free_cuda()
+        return {"freed": True}
+
     @staticmethod
     def _free_cuda() -> None:
         try:
@@ -239,6 +248,8 @@ class JobService:
                 job.error = str(exc)
                 self._free_cuda()
             finally:
+                if self.settings.ltx_free_vram:
+                    self.free_vram()
                 job.finished_at = datetime.now(timezone.utc)
                 job._done.set()
                 self._queue.task_done()
@@ -348,7 +359,14 @@ class JobService:
                     self.settings.pipeline_config_path,
                     max_gpu_memory_gb=self.settings.ltx_max_gpu_memory_gb,
                     cpu_offload=self.settings.ltx_cpu_offload,
+                    free_vram=self.settings.ltx_free_vram,
                 )
+                try:
+                    self._engine.load()
+                except Exception:
+                    self._engine = None
+                    raise
+            elif not getattr(self._engine, "ready", False):
                 try:
                     self._engine.load()
                 except Exception:
