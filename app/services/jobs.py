@@ -313,7 +313,9 @@ class JobService:
             negative_prompt=job.negative_prompt,
             image_path=job.image_path,
             image_cond_noise_scale=job.image_cond_noise_scale,
+            single_scale=True,
         )
+        self._free_cuda()
         engine.generate(
             prompt=job.walk_in_prompt or walk_in_prompt(direction),
             output_path=clip_in,
@@ -325,6 +327,7 @@ class JobService:
             negative_prompt=job.negative_prompt,
             image_path=enter_path,
             image_cond_noise_scale=job.image_cond_noise_scale,
+            single_scale=True,
         )
         hold = max(6, job.frame_rate // 3)
         concat_videos(

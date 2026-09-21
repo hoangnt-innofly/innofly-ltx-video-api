@@ -167,12 +167,22 @@ class LTXEngine:
         negative_prompt: str,
         image_path: str | Path | None = None,
         image_cond_noise_scale: float = 0.15,
+        single_scale: bool = False,
     ) -> Path:
         if not self._ready:
             self.load()
 
         pipeline_config = copy.deepcopy(self.raw_pipeline_config)
         pipeline_config.pop("stg_mode", None)
+        pipe = self.pipeline
+        if single_scale:
+            pipe = self._inner_pipeline()
+            first_pass = pipeline_config.pop("first_pass", None) or {}
+            pipeline_config.pop("second_pass", None)
+            pipeline_config.pop("pipeline_type", None)
+            pipeline_config.pop("downscale_factor", None)
+            pipeline_config.pop("spatial_upscaler_model_path", None)
+            pipeline_config.update(first_pass)
 
         seed_everething(seed)
         # Keep the pipeline's T5→CPU→transformer hop even with accelerate, so
@@ -198,11 +208,11 @@ class LTXEngine:
                     width=width,
                     num_frames=num_frames,
                     padding=padding,
-                    pipeline=self.pipeline,
+                    pipeline=pipe,
                 )
 
             generator = torch.Generator(device=self.device).manual_seed(seed)
-            images = self.pipeline(
+            images = pipe(
                 **pipeline_config,
                 skip_layer_strategy=self._skip_layer_strategy,
                 generator=generator,
