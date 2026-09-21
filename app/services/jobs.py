@@ -302,6 +302,7 @@ class JobService:
         clip_out = self.settings.video_dir / f"{job.id}_out.mp4"
         clip_in = self.settings.video_dir / f"{job.id}_in.mp4"
         engine = self._get_engine()
+        engine.prepare_low_vram()
         engine.generate(
             prompt=job.walk_out_prompt or walk_out_prompt(direction),
             output_path=clip_out,

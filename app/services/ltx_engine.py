@@ -176,6 +176,10 @@ class LTXEngine:
         pipeline_config.pop("stg_mode", None)
         pipe = self.pipeline
         if single_scale:
+            # Server may keep the multi-scale pipeline resident (~11GB). Park
+            # unused weights before this small i2v pass so we do not need a
+            # different LTX_PIPELINE_CONFIG on the host.
+            self.prepare_low_vram()
             pipe = self._inner_pipeline()
             first_pass = pipeline_config.pop("first_pass", None) or {}
             pipeline_config.pop("second_pass", None)
@@ -195,7 +199,7 @@ class LTXEngine:
         padding = calculate_padding(height, width, height_padded, width_padded)
 
         try:
-            if self.cpu_offload:
+            if self.cpu_offload or single_scale:
                 self._free_cuda()
                 self._place_vae_on_gpu()
             conditioning_items = None
@@ -257,7 +261,7 @@ class LTXEngine:
                     writer.append_data(frame)
             return output_path
         finally:
-            if self.cpu_offload:
+            if self.cpu_offload or single_scale:
                 self._rest_after_job()
             self._free_cuda()
 
@@ -287,6 +291,12 @@ class LTXEngine:
         if mode in {"stg_t", "transformer_block"}:
             return SkipLayerStrategy.TransformerBlock
         raise ValueError(f"Invalid spatiotemporal guidance mode: {stg_mode}")
+
+    def prepare_low_vram(self) -> None:
+        """Move transformer/T5/VAE/upscaler to RAM and drop the CUDA cache."""
+        self._rest_on_cpu()
+        self._free_cuda()
+        logger.info("Low-VRAM rest: %s", self._vram_log() or "cpu")
 
     def _inner_pipeline(self):
         pipe = self.pipeline
