@@ -9,34 +9,44 @@ WalkDirection = str
 
 NEGATIVE_EXTRA = (
     "person frozen in place, standing still in the center, morphing clothes, "
-    "two people, clone, extra limbs, warped face, sliding teleport, camera pan"
+    "two people, clone, extra limbs, warped face, sliding teleport, camera pan, "
+    "head cropped, missing face, headless, face cut off, torso only, clothes only, "
+    "zoomed in on body, close-up of outfit, no head"
 )
 
 WALK_OUT_PROMPTS = {
     "right": (
-        "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, "
-        "the same person from the first frame turns and walks naturally to the right, "
-        "full body visible, casual gait, arms swinging, continues walking until they completely "
-        "leave the frame on the right, empty studio remains, no cut, no clothes change"
+        "Photorealistic vertical 9:16 full-body studio video, locked tripod camera, "
+        "light gray seamless backdrop, first frames match the reference photo exactly: "
+        "the same face, head, hair and full body stay in frame, no zoom, no crop. "
+        "Then that same person turns and walks naturally to the right, face still visible "
+        "until they leave the right edge, casual gait, arms swinging, empty studio remains, "
+        "no cut, no clothes change, no close-up of the torso"
     ),
     "left": (
-        "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, "
-        "the same person from the first frame turns and walks naturally to the left, "
-        "full body visible, casual gait, arms swinging, continues walking until they completely "
-        "leave the frame on the left, empty studio remains, no cut, no clothes change"
+        "Photorealistic vertical 9:16 full-body studio video, locked tripod camera, "
+        "light gray seamless backdrop, first frames match the reference photo exactly: "
+        "the same face, head, hair and full body stay in frame, no zoom, no crop. "
+        "Then that same person turns and walks naturally to the left, face still visible "
+        "until they leave the left edge, casual gait, arms swinging, empty studio remains, "
+        "no cut, no clothes change, no close-up of the torso"
     ),
 }
 
 WALK_IN_PROMPTS = {
     "right": (
-        "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, "
-        "the person enters from the right edge walking left toward the center, natural gait, "
-        "then stops in the middle facing the camera, full body, same lighting, no morphing"
+        "Photorealistic vertical 9:16 full-body studio video, locked tripod camera, "
+        "light gray seamless backdrop, the same person enters from the right edge walking "
+        "left toward the center, face and head visible the whole time, natural gait, "
+        "then stops in the middle facing the camera, full body, same identity and lighting, "
+        "no morphing, no zoom into clothes"
     ),
     "left": (
-        "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, "
-        "the person enters from the left edge walking right toward the center, natural gait, "
-        "then stops in the middle facing the camera, full body, same lighting, no morphing"
+        "Photorealistic vertical 9:16 full-body studio video, locked tripod camera, "
+        "light gray seamless backdrop, the same person enters from the left edge walking "
+        "right toward the center, face and head visible the whole time, natural gait, "
+        "then stops in the middle facing the camera, full body, same identity and lighting, "
+        "no morphing, no zoom into clothes"
     ),
 }
 
@@ -92,6 +102,22 @@ def sample_background(image: Image.Image) -> tuple[int, int, int]:
         axis=0,
     )
     return tuple(int(x) for x in patches.mean(axis=0))
+
+
+def prepare_start_frame(
+    image_path: str | Path,
+    output_path: str | Path,
+    *,
+    width: int,
+    height: int,
+) -> Path:
+    """Letterbox the photo onto the job canvas so I2V does not center-crop the head."""
+    source = Image.open(image_path).convert("RGB")
+    fitted = fit_on_canvas(source, width, height)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fitted.save(output_path, quality=95)
+    return output_path
 
 
 def prepare_enter_frame(

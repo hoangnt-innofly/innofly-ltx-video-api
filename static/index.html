@@ -186,21 +186,21 @@
             <img id="preview-after" alt="Xem ảnh 2" />
           </div>
         </div>
-        <p class="hint" style="margin-top:14px">Mặc định: đi sang phải ra khỏi màn hình → khoảng trống → đi vào lại với đồ mới. RTX 12GB nên giữ 192×256 × 17 khung.</p>
+        <p class="hint" style="margin-top:14px">Mặc định: đi sang phải ra khỏi màn hình → khoảng trống → đi vào lại với đồ mới. Khung 9:16 (576×1024) để ảnh điện thoại không bị cắt mặt.</p>
         <details class="accordion" open>
           <summary>Thông số · frames, kích thước (tránh OOM)</summary>
           <div class="row">
             <div>
               <label>Chiều rộng</label>
-              <input type="number" name="width" id="outfit-width" value="192" step="32" min="32" />
-              <p class="hint">Bội số 32. RTX 12GB nên 192.</p>
-              <p class="warn">Lớn hơn dễ OOM vì gen 2 clip.</p>
+              <input type="number" name="width" id="outfit-width" value="576" step="32" min="32" />
+              <p class="hint">Bội số 32. 576 = cạnh ngắn của 9:16.</p>
+              <p class="warn">704+ dễ OOM vì gen 2 clip.</p>
             </div>
             <div>
               <label>Chiều cao</label>
-              <input type="number" name="height" id="outfit-height" value="256" step="32" min="32" />
-              <p class="hint">Portrait. RTX 12GB nên 256.</p>
-              <p class="warn">384+ dễ OOM.</p>
+              <input type="number" name="height" id="outfit-height" value="1024" step="32" min="32" />
+              <p class="hint">Portrait 9:16. 1024 giữ được đầu + chân.</p>
+              <p class="warn">1152+ dễ OOM.</p>
             </div>
             <div>
               <label>Số khung / clip (8n+1)</label>
@@ -221,8 +221,8 @@
             </div>
           </div>
           <label>Nhiễu bám ảnh (0–0.5)</label>
-          <input type="number" name="image_cond_noise_scale" id="outfit-noise" value="0.15" min="0" max="0.5" step="0.01" />
-          <p class="hint">Cao hơn thì đi được xa hơn, dễ méo mặt. OOM không liên quan field này.</p>
+          <input type="number" name="image_cond_noise_scale" id="outfit-noise" value="0.08" min="0" max="0.5" step="0.01" />
+          <p class="hint">Thấp (0.05–0.08) để frame đầu bám ảnh, giữ mặt. Cao hơn thì đi xa hơn, dễ mất mặt.</p>
           <div class="duration" id="outfit-duration">Độ dài video: —</div>
         </details>
         <details class="accordion">
@@ -391,12 +391,12 @@
       default_direction: "right",
       prompts: {
         right: {
-          walk_out_prompt: "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, the same person from the first frame turns and walks naturally to the right, full body visible, casual gait, arms swinging, continues walking until they completely leave the frame on the right, empty studio remains, no cut, no clothes change",
-          walk_in_prompt: "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, the person enters from the right edge walking left toward the center, natural gait, then stops in the middle facing the camera, full body, same lighting, no morphing"
+          walk_out_prompt: "Photorealistic vertical 9:16 full-body studio video, locked tripod camera, light gray seamless backdrop, first frames match the reference photo exactly: the same face, head, hair and full body stay in frame, no zoom, no crop. Then that same person turns and walks naturally to the right, face still visible until they leave the right edge, casual gait, arms swinging, empty studio remains, no cut, no clothes change, no close-up of the torso",
+          walk_in_prompt: "Photorealistic vertical 9:16 full-body studio video, locked tripod camera, light gray seamless backdrop, the same person enters from the right edge walking left toward the center, face and head visible the whole time, natural gait, then stops in the middle facing the camera, full body, same identity and lighting, no morphing, no zoom into clothes"
         },
         left: {
-          walk_out_prompt: "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, the same person from the first frame turns and walks naturally to the left, full body visible, casual gait, arms swinging, continues walking until they completely leave the frame on the left, empty studio remains, no cut, no clothes change",
-          walk_in_prompt: "Photorealistic full-body studio video, locked tripod camera, light gray seamless backdrop, the person enters from the left edge walking right toward the center, natural gait, then stops in the middle facing the camera, full body, same lighting, no morphing"
+          walk_out_prompt: "Photorealistic vertical 9:16 full-body studio video, locked tripod camera, light gray seamless backdrop, first frames match the reference photo exactly: the same face, head, hair and full body stay in frame, no zoom, no crop. Then that same person turns and walks naturally to the left, face still visible until they leave the left edge, casual gait, arms swinging, empty studio remains, no cut, no clothes change, no close-up of the torso",
+          walk_in_prompt: "Photorealistic vertical 9:16 full-body studio video, locked tripod camera, light gray seamless backdrop, the same person enters from the left edge walking right toward the center, face and head visible the whole time, natural gait, then stops in the middle facing the camera, full body, same identity and lighting, no morphing, no zoom into clothes"
         }
       }
     };

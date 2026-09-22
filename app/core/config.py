@@ -31,12 +31,12 @@ class Settings(BaseSettings):
     )
     ltx_default_image_cond_noise_scale: float = 0.15
 
-    # Portrait-friendly defaults for the two-image outfit-change screen.
-    ltx_outfit_width: int = 192
-    ltx_outfit_height: int = 256
+    # 9:16 portrait so phone photos keep the head. Both sides > 512.
+    ltx_outfit_width: int = 576
+    ltx_outfit_height: int = 1024
     ltx_outfit_num_frames: int = 17
     ltx_outfit_frame_rate: int = 8
-    ltx_outfit_image_cond_noise_scale: float = 0.15
+    ltx_outfit_image_cond_noise_scale: float = 0.08
     ltx_outfit_direction: str = "right"
 
     max_upload_mb: int = 20

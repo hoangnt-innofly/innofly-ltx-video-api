@@ -16,6 +16,7 @@ from app.core.outfit import (
     empty_studio_frame,
     normalize_direction,
     prepare_enter_frame,
+    prepare_start_frame,
     resolve_prompt,
     walk_in_prompt,
     walk_out_prompt,
@@ -302,7 +303,14 @@ class JobService:
             )
             return
 
+        start_path = self.settings.upload_dir / f"{job.id}_start.jpg"
         enter_path = self.settings.upload_dir / f"{job.id}_enter.jpg"
+        prepare_start_frame(
+            job.image_path,
+            start_path,
+            width=job.width,
+            height=job.height,
+        )
         prepare_enter_frame(
             job.image2_path,
             enter_path,
@@ -323,7 +331,7 @@ class JobService:
             frame_rate=job.frame_rate,
             seed=job.seed,
             negative_prompt=job.negative_prompt,
-            image_path=job.image_path,
+            image_path=start_path,
             image_cond_noise_scale=job.image_cond_noise_scale,
             single_scale=True,
         )
