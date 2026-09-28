@@ -326,6 +326,7 @@ class LTXEngine:
         text_encoder = getattr(pipe, "text_encoder", None)
         self._pin_text_encoder_off_gpu(text_encoder)
         streamed = self._stream_t5_blocks(text_encoder)
+        self._align_encode_prompt_devices(pipe)
         self._force_cuda_execution_device(pipe)
         self._patch_cpu_clears_cache(text_encoder)
         self._patch_cpu_clears_cache(getattr(pipe, "transformer", None))
@@ -437,6 +438,31 @@ class LTXEngine:
 
         text_encoder.to = types.MethodType(to, text_encoder)
         text_encoder._ltx_cpu_pinned = True
+
+    def _align_encode_prompt_devices(self, pipe) -> None:
+        """The pipeline moves only the positive mask onto `_execution_device`.
+
+        With T5 left on CPU, the negative mask stays on CPU and the later
+        `torch.cat` of the two masks fails.
+        """
+        if pipe is None or getattr(pipe, "_ltx_encode_aligned", False):
+            return
+        orig = pipe.encode_prompt
+
+        def encode_prompt(this, *args, **kwargs):
+            prompt_embeds, prompt_mask, neg_embeds, neg_mask = orig(*args, **kwargs)
+            if torch.is_tensor(prompt_embeds):
+                device = prompt_embeds.device
+                if torch.is_tensor(prompt_mask):
+                    prompt_mask = prompt_mask.to(device)
+                if torch.is_tensor(neg_embeds):
+                    neg_embeds = neg_embeds.to(device=device, dtype=prompt_embeds.dtype)
+                if torch.is_tensor(neg_mask):
+                    neg_mask = neg_mask.to(device)
+            return prompt_embeds, prompt_mask, neg_embeds, neg_mask
+
+        pipe.encode_prompt = types.MethodType(encode_prompt, pipe)
+        pipe._ltx_encode_aligned = True
 
     def _stream_t5_blocks(self, text_encoder) -> int:
         """Run one T5 block on the GPU at a time. The full encoder is ~11GB."""
