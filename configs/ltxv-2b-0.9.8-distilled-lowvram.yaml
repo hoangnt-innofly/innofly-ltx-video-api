@@ -1,5 +1,8 @@
 # Single-scale distilled 2B — no spatial upscaler / second pass.
-# Use this on 12GB GPUs (RTX 3060). Keep generate size at 512x320 x 49 or smaller.
+# The DiT itself is ~4GB. The ~11GB spike is PixArt T5-XXL if it is moved
+# onto the GPU whole. LTX_CPU_OFFLOAD=1 streams one T5 block at a time so
+# this pass stays around 6–8GB and can run beside other weights (~10GB free).
+# Keep generate size at 512x320 x 49 or smaller.
 pipeline_type: base
 checkpoint_path: "ltxv-2b-0.9.8-distilled.safetensors"
 stg_mode: "attention_values"

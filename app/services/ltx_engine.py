@@ -319,20 +319,27 @@ class LTXEngine:
         pipe = self._inner_pipeline()
         self._rest_on_cpu()
         self._wrap_vae_encode_on_gpu(getattr(pipe, "vae", None))
-        self._accelerate_offload = self._try_enable_diffusers_offload()
-        if self._accelerate_offload:
-            logger.info(
-                "CPU offload enabled (accelerate): T5/transformer hooked; "
-                "VAE excluded so image-to-video lerp stays on CUDA"
-            )
-            return
+        # Accelerate's model offload still moves the whole T5-XXL (~11GB bf16)
+        # onto the GPU for encode. That is the spike that does not fit in the
+        # ~10GB left beside other weights. Stream one T5 block instead.
+        self._accelerate_offload = False
+        text_encoder = getattr(pipe, "text_encoder", None)
+        self._pin_text_encoder_off_gpu(text_encoder)
+        streamed = self._stream_t5_blocks(text_encoder)
         self._force_cuda_execution_device(pipe)
-        self._patch_cpu_clears_cache(getattr(pipe, "text_encoder", None))
+        self._patch_cpu_clears_cache(text_encoder)
         self._patch_cpu_clears_cache(getattr(pipe, "transformer", None))
-        logger.info(
-            "CPU offload enabled (manual, accelerate unavailable): "
-            "T5 idles in RAM; VAE is moved to GPU for each job"
-        )
+        if streamed:
+            logger.info(
+                "CPU offload enabled: T5-XXL stays in RAM (%s blocks stream to GPU); "
+                "denoise keeps the 2B transformer on GPU",
+                streamed,
+            )
+        else:
+            logger.info(
+                "CPU offload enabled: T5-XXL encode runs on CPU "
+                "(no encoder blocks found to stream)"
+            )
 
     def _try_enable_diffusers_offload(self) -> bool:
         pipe = self._inner_pipeline()
@@ -361,7 +368,7 @@ class LTXEngine:
         self._rest_on_cpu()
 
     def _force_cuda_execution_device(self, pipe) -> None:
-        """Make pipeline.__call__ move T5/transformer onto CUDA even when weights idle on CPU."""
+        """Make pipeline.__call__ move the transformer onto CUDA. T5 stays pinned in RAM."""
         if pipe is None:
             return
         device = torch.device(self.device)
@@ -382,6 +389,17 @@ class LTXEngine:
         cls._execution_device = property(_execution_device)
         cls._ltx_execution_patched = True
 
+    def _place_scheduler_on_gpu(self) -> None:
+        pipe = self._inner_pipeline()
+        if pipe is None:
+            return
+        scheduler = getattr(pipe, "scheduler", None)
+        if scheduler is not None and hasattr(scheduler, "to"):
+            try:
+                scheduler.to(self.device)
+            except Exception:
+                pass
+
     def _place_vae_on_gpu(self) -> None:
         pipe = self._inner_pipeline()
         if pipe is None:
@@ -389,12 +407,7 @@ class LTXEngine:
         vae = getattr(pipe, "vae", None)
         if vae is not None:
             vae.to(self.device)
-        scheduler = getattr(pipe, "scheduler", None)
-        if scheduler is not None and hasattr(scheduler, "to"):
-            try:
-                scheduler.to(self.device)
-            except Exception:
-                pass
+        self._place_scheduler_on_gpu()
 
     def _wrap_vae_encode_on_gpu(self, vae) -> None:
         if vae is None or getattr(vae, "_ltx_encode_on_gpu", False):
@@ -410,6 +423,85 @@ class LTXEngine:
 
         vae.encode = types.MethodType(encode, vae)
         vae._ltx_encode_on_gpu = True
+
+    def _pin_text_encoder_off_gpu(self, text_encoder) -> None:
+        """Ignore `.to(cuda)` so the pipeline cannot park all of T5-XXL on the GPU."""
+        if text_encoder is None or getattr(text_encoder, "_ltx_cpu_pinned", False):
+            return
+        orig_to = text_encoder.to
+
+        def to(this, *args, **kwargs):
+            if LTXEngine._call_targets_cuda(args, kwargs):
+                return this
+            return orig_to(*args, **kwargs)
+
+        text_encoder.to = types.MethodType(to, text_encoder)
+        text_encoder._ltx_cpu_pinned = True
+
+    def _stream_t5_blocks(self, text_encoder) -> int:
+        """Run one T5 block on the GPU at a time. The full encoder is ~11GB."""
+        if text_encoder is None:
+            return 0
+        encoder = getattr(text_encoder, "encoder", None)
+        blocks = getattr(encoder, "block", None) if encoder is not None else None
+        if blocks is None:
+            return 0
+        device = self.device
+        streamed = 0
+        for block in blocks:
+            if getattr(block, "_ltx_streamed", False):
+                streamed += 1
+                continue
+            orig_forward = block.forward
+
+            def forward(this, *args, _orig=orig_forward, **kwargs):
+                this.to(device)
+                try:
+                    args = tuple(LTXEngine._move_tensors(arg, device) for arg in args)
+                    kwargs = {
+                        key: LTXEngine._move_tensors(value, device)
+                        for key, value in kwargs.items()
+                    }
+                    out = _orig(*args, **kwargs)
+                    return LTXEngine._move_tensors(out, "cpu")
+                finally:
+                    this.to("cpu")
+
+            block.forward = types.MethodType(forward, block)
+            block._ltx_streamed = True
+            streamed += 1
+        return streamed
+
+    @staticmethod
+    def _call_targets_cuda(args: tuple, kwargs: dict) -> bool:
+        dest = kwargs.get("device")
+        if dest is None and args and not isinstance(args[0], torch.dtype):
+            dest = args[0]
+        if dest is None or isinstance(dest, torch.dtype):
+            return False
+        try:
+            return torch.device(dest).type == "cuda"
+        except (TypeError, RuntimeError, ValueError):
+            return False
+
+    @staticmethod
+    def _move_tensors(value, device):
+        if torch.is_tensor(value):
+            target = torch.device(device)
+            if value.device.type == target.type and (
+                target.index is None or value.device.index == target.index
+            ):
+                return value
+            return value.to(device)
+        if isinstance(value, tuple):
+            return tuple(LTXEngine._move_tensors(item, device) for item in value)
+        if isinstance(value, list):
+            return [LTXEngine._move_tensors(item, device) for item in value]
+        if isinstance(value, dict):
+            return {
+                key: LTXEngine._move_tensors(item, device) for key, item in value.items()
+            }
+        return value
 
     def _rest_on_cpu(self) -> None:
         pipe = self._inner_pipeline()
